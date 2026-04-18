@@ -1,3 +1,5 @@
+const { onShoot } = require("./friendsurely");
+
 const TRACK = {
     x: 150,
     y: 50,
@@ -13,17 +15,62 @@ const PLAYER_SIZE = 30;
 
 const matches = new Map();
 
+function getNormalized(x, y, dx, dy) {
+    const vx = dx - x;
+    const vy = dy - y;
+
+    const mag = Math.sqrt(vx * vx + vy * vy);
+
+    if (mag === 0) return { x: 0, y: 0 };
+
+    return {
+        x: vx / mag,
+        y: vy / mag
+    };
+}
+
+function shootProjectile(match, x, y, dx, dy, owner ) {
+    const id = match.projectileId++;
+
+    const body = Matter.Bodies.circle(x, y, PROJECTILE_RADIUS, {
+        label: "projectile",
+        friction: 0,
+        frictionAir: 0,
+        restitution: 1
+    });
+
+    let vector = getNormalized(x, y, dx, dy);
+    Matter.Body.setVelocity(body, {
+        x: vector.x * PROJECTILE_SPEED,
+        y: vector.y * PROJECTILE_SPEED
+    });
+
+
+    match.projectiles.set(id, body);
+    Matter.World.add(match.engine.world, body);
+}
+
+/* =========================
+   SOCKET EVENTS (example)
+========================= */
+
 /* =========================
    CREATE MATCH
 ========================= */
 
 function createMatch() {
     const id = Math.random().toString(36).slice(2);
+    
+    const engine = Matter.Engine.create();
+    engine.world.gravity.y = 0;
 
     const match = {
         id,
         players: {},
-        sockets: []
+        sockets: [],
+        engine,
+        projectiles: new Map(),
+        projectileId: 0
     };
 
     matches.set(id, match);
@@ -73,6 +120,11 @@ setInterval(() => {
 
             if (p.input.dx > 0) p.trackPos += SPEED;
             if (p.input.dx < 0) p.trackPos -= SPEED;
+
+            if (p.input.mouse.isDown) {
+                points = getTrackPoint(match.players[id].trackPos);
+                shootProjectile(match, points.x, points.y, p.input.mouse.x, p.input.mouse.y, id);
+            };
         }
 
         /* BUILD STATE */
