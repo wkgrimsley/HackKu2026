@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { socket } from "./socket"; // SINGLE shared socket
 
 function GamePage() {
     const { name } = useParams();
@@ -8,68 +7,56 @@ function GamePage() {
     const wsRef = useRef(null);
     const stateRef = useRef({});
     const canvasRef = useRef(null);
-    const mouseRef = useRef({ x: 0, y: 0 });
     const keysRef = useRef({});
 
-    // -----------------------------
-    // NETWORK
-    // -----------------------------
+    /* =========================
+       NETWORK
+    ========================= */
+
     useEffect(() => {
-        wsRef.current = socket;
+        const ws = new WebSocket("ws://localhost:80");
+        wsRef.current = ws;
 
-        socket.onopen = () => {
-            console.log("Connected");
-
-            socket.send(JSON.stringify({
-                type: "login",
+        ws.onopen = () => {
+            ws.send(JSON.stringify({
+                type: "join_match",
                 name
             }));
         };
 
-        socket.onmessage = (event) => {
-            const state = JSON.parse(event.data);
-            stateRef.current = state;
+        ws.onmessage = (event) => {
+            stateRef.current = JSON.parse(event.data);
         };
 
-        return () => {
-            socket.onmessage = null;
-        };
+        return () => ws.close();
     }, [name]);
 
-    // -----------------------------
-    // INPUT SYSTEM
-    // -----------------------------
+    /* =========================
+       INPUT
+    ========================= */
+
     useEffect(() => {
-        const handleKeyDown = (e) => {
+        const down = (e) => {
             keysRef.current[e.key.toLowerCase()] = true;
         };
 
-        const handleKeyUp = (e) => {
+        const up = (e) => {
             keysRef.current[e.key.toLowerCase()] = false;
         };
 
-        const handleMouseMove = (e) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-
-            mouseRef.current.x = e.clientX - rect.left;
-            mouseRef.current.y = e.clientY - rect.top;
-        };
-
-        window.addEventListener("keydown", handleKeyDown);
-        window.addEventListener("keyup", handleKeyUp);
-        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("keydown", down);
+        window.addEventListener("keyup", up);
 
         return () => {
-            window.removeEventListener("keydown", handleKeyDown);
-            window.removeEventListener("keyup", handleKeyUp);
-            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("keydown", down);
+            window.removeEventListener("keyup", up);
         };
     }, []);
 
-    // -----------------------------
-    // SEND INPUT LOOP (30 TPS)
-    // -----------------------------
+    /* =========================
+       SEND INPUT
+    ========================= */
+
     useEffect(() => {
         let last = 0;
         const RATE = 1000 / 30;
@@ -78,22 +65,15 @@ function GamePage() {
             if (t - last >= RATE) {
                 last = t;
 
-                const keys = keysRef.current;
-
                 let dx = 0;
-                let dy = 0;
 
-                if (keys["w"]) dy -= 1;
-                if (keys["s"]) dy += 1;
-                if (keys["a"]) dx -= 1;
-                if (keys["d"]) dx += 1;
+                if (keysRef.current["d"]) dx = 1;
+                if (keysRef.current["a"]) dx = -1;
 
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({
                         type: "input",
-                        dx,
-                        dy,
-                        mouse: mouseRef.current
+                        dx
                     }));
                 }
             }
@@ -104,66 +84,60 @@ function GamePage() {
         requestAnimationFrame(loop);
     }, []);
 
-    // -----------------------------
-    // RENDER LOOP
-    // -----------------------------
+    /* =========================
+       RENDER
+    ========================= */
+
     useEffect(() => {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
 
-        const WORLD_WIDTH = 2000;
-        const WORLD_HEIGHT = 2000;
+        const TRACK = {
+            x: 150,
+            y: 50,
+            width: 900,
+            height: 900
+        };
 
         const render = () => {
-            const state = stateRef.current;
-
-            const players = state.players || {};
-            const projectiles = state.projectiles || {};
-            const walls = state.walls || {};
-
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            /* TRACK */
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(TRACK.x, TRACK.y, TRACK.width, TRACK.height);
+
+            /* PLAYERS */
+            const players = stateRef.current.players || {};
+
+            ctx.fillStyle = "white";
 
             for (let id in players) {
                 const p = players[id];
-                if (!p) continue;
 
-                ctx.fillStyle = "white";
-                ctx.fillRect(p.x, p.y, 20, 20);
-            }
-            for (let id in projectiles) {
-                const p = projectiles[id];
-                if (!p) continue;
+                const size = p.size || 30;
 
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillRect(
+                    p.x - size / 2,
+                    p.y - size / 2,
+                    size,
+                    size
+                );
             }
-            for (let id in walls) {
-                const w = walls[id];
-                if (!w) continue;
 
-                ctx.fillRect(w.x, w.y, w.width, w.length);
-            }
-    
             requestAnimationFrame(render);
         };
+
         render();
     }, []);
 
-    // -----------------------------
-    // UI
-    // -----------------------------
     return (
-        <div style={{ width: "100vw", height: "100vh", background: "#111" }}>
-            <h2 style={{ position: "absolute", color: "white", margin: 10 }}>
-                Player: {name}
-            </h2>
-
+        <div>
             <canvas
                 ref={canvasRef}
-                width={window.innerWidth}
-                height={window.innerHeight}
-                style={{ display: "block" }}
+                width={1200}
+                height={1000}
+                style={{ background: "#111" }}
             />
         </div>
     );

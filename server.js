@@ -11,66 +11,64 @@ app.use(express.static(path.join(__dirname, "public")));
 const wss = new WebSocket.Server({ server });
 
 /* =========================
-   GRAPH MAP
-========================= */
-
-const nodes = {
-    A: { x: 100, y: 300 },
-    B: { x: 400, y: 300 },
-    C: { x: 700, y: 300 },
-    D: { x: 400, y: 100 }
-};
-
-const edges = [
-    { id: 0, from: "A", to: "B" },
-    { id: 1, from: "B", to: "C" },
-    { id: 2, from: "B", to: "D" }
-];
-
-/* =========================
-   MATCH STATE
+   MATCHMAKING
 ========================= */
 
 let matchmakingQueue = [];
 let matches = new Map();
 
 /* =========================
-   CREATE MATCH
+   CONSTANTS
+========================= */
+
+const TRACK = {
+    x: 150,
+    y: 50,
+    width: 900,
+    height: 900
+};
+
+const PLAYER_SIZE = 30;
+
+/* =========================
+   MATCH SETUP
 ========================= */
 
 function createMatch() {
     return {
         players: {},
-        projectiles: {},
         sockets: []
     };
 }
 
 /* =========================
-   GRAPH HELPERS
+   TRACK POSITION
 ========================= */
 
-function getPosition(match, edgeId, t) {
-    const edge = match.edges.find(e => e.id === edgeId);
-    const a = nodes[edge.from];
-    const b = nodes[edge.to];
+function getTrackPoint(t) {
+    const w = TRACK.width;
+    const h = TRACK.height;
 
-    return {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t
-    };
-}
+    const perimeter = 2 * (w + h);
 
-function getDirection(match, edgeId) {
-    const edge = match.edges.find(e => e.id === edgeId);
-    const a = nodes[edge.from];
-    const b = nodes[edge.to];
+    t = ((t % perimeter) + perimeter) % perimeter;
 
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy);
+    if (t < w) {
+        return { x: TRACK.x + t, y: TRACK.y };
+    }
+    t -= w;
 
-    return { x: dx / len, y: dy / len };
+    if (t < h) {
+        return { x: TRACK.x + w, y: TRACK.y + t };
+    }
+    t -= h;
+
+    if (t < w) {
+        return { x: TRACK.x + w - t, y: TRACK.y + h };
+    }
+    t -= w;
+
+    return { x: TRACK.x, y: TRACK.y + h - t };
 }
 
 /* =========================
@@ -83,16 +81,13 @@ function tryMatchmake() {
 
         const roomId = Math.random().toString(36).slice(2);
         const match = createMatch();
-        match.edges = edges;
-        match.nodes = nodes;
 
         group.forEach((ws, i) => {
             const id = ws.id;
 
             match.players[id] = {
-                edge: 0,
-                t: 0,
-                input: { dx: 0, dy: 0 }
+                trackPos: i * 100,
+                input: { dx: 0 }
             };
 
             match.sockets.push(ws);
@@ -120,13 +115,11 @@ wss.on("connection", (ws) => {
     ws.on("message", (msg) => {
         const data = JSON.parse(msg);
 
-        /* JOIN MATCHMAKING */
         if (data.type === "join_match") {
             matchmakingQueue.push(ws);
             tryMatchmake();
         }
 
-        /* INPUT */
         if (data.type === "input") {
             const match = matches.get(ws.roomId);
             if (!match) return;
@@ -134,10 +127,7 @@ wss.on("connection", (ws) => {
             const p = match.players[ws.id];
             if (!p) return;
 
-            p.input = {
-                dx: data.dx || 0,
-                dy: data.dy || 0
-            };
+            p.input = data;
         }
     });
 
@@ -155,61 +145,35 @@ wss.on("connection", (ws) => {
 });
 
 /* =========================
-   GAME LOOP (INPUT DRIVEN)
+   GAME LOOP
 ========================= */
+
+const SPEED = 12;
 
 setInterval(() => {
     matches.forEach((match) => {
 
-        const SPEED = 0.02;
-
-        /* MOVE PLAYERS (INPUT CONTROLLED) */
+        /* MOVE PLAYERS */
         for (let id in match.players) {
             const p = match.players[id];
 
-            const edge = match.edges.find(e => e.id === p.edge);
-            if (!edge) continue;
-
-            const from = match.nodes[edge.from];
-            const to = match.nodes[edge.to];
-
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const len = Math.hypot(dx, dy);
-
-            const ux = dx / len;
-            const uy = dy / len;
-
-            const move =
-                (p.input.dx || 0) * ux +
-                (p.input.dy || 0) * uy;
-
-            p.t += move * SPEED;
-
-            if (p.t < 0) p.t = 0;
-            if (p.t > 1) p.t = 1;
-
-            /* JUNCTION TRANSITION */
-            if (p.t >= 1) {
-                const currentNode = edge.to;
-                const options = match.edges.filter(e => e.from === currentNode);
-
-                if (p.input.dx > 0) p.edge = options[0]?.id ?? p.edge;
-                if (p.input.dy < 0) p.edge = options[1]?.id ?? p.edge;
-
-                p.t = 0;
-            }
+            if (p.input.dx > 0) p.trackPos += SPEED;
+            if (p.input.dx < 0) p.trackPos -= SPEED;
         }
 
         /* BUILD STATE */
-        const state = { players: {} };
+        const state = {
+            players: {}
+        };
 
         for (let id in match.players) {
-            const p = match.players[id];
-            state.players[id] = getPosition(match, p.edge, p.t);
+            state.players[id] = {
+                ...getTrackPoint(match.players[id].trackPos),
+                size: PLAYER_SIZE
+            };
         }
 
-        /* SEND */
+        /* SEND STATE */
         const msg = JSON.stringify(state);
 
         match.sockets.forEach(ws => {
