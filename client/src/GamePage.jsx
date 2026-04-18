@@ -73,9 +73,9 @@ function GamePage() {
         window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", down);
         window.addEventListener("keyup", up);
-        window.addEventListener("mousedown",handleMouseDown);
-        window.addEventListener("mouseup",handleMouseUp);
-        
+        window.addEventListener("mousedown", handleMouseDown);
+        window.addEventListener("mouseup", handleMouseUp);
+
         return () => {
             window.removeEventListener("keydown", down);
             window.removeEventListener("keyup", up);
@@ -101,12 +101,17 @@ function GamePage() {
                 if (keysRef.current["d"]) dx = 1;
                 if (keysRef.current["a"]) dx = -1;
 
-
-                socket.send(JSON.stringify({
-                    type: "input",
-                    dx,
-                    mouseRef
-                }));
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({
+                        type: "input",
+                        dx,
+                        mouse: {
+                            x: mouseRef.current.x,
+                            y: mouseRef.current.y,
+                            isDown: mouseRef.current.isDown
+                        }
+                    }));
+                }
             }
 
             requestAnimationFrame(loop);
@@ -176,9 +181,11 @@ function GamePage() {
                 TRACK.size
             );
 
-            /* =========================
-               DRAW PLAYERS
-            ========================= */
+            /* PLAYERS */
+            const players = stateRef.current.players || {};
+            const projectiles = stateRef.current.projectiles || {};
+
+            ctx.fillStyle = "white";
 
             for (let id in players) {
                 const p = players[id];
@@ -193,6 +200,24 @@ function GamePage() {
                 ctx.fill();
 
                 ctx.shadowBlur = 0;
+            }
+            for (let id in projectiles) {
+                const p = projectiles[id];
+
+                const size = p.size || 5;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            for (let id in projectiles) {
+                const p = projectiles[id];
+
+                const size = p.size || 5;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                ctx.fill();
             }
 
             requestAnimationFrame(render);
