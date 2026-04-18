@@ -25,6 +25,8 @@ RUN npm install
 
 # Copy backend code
 COPY server.js ./
+COPY matchmaking.js ./
+COPY gameManager.js ./
 
 # Copy built React files to the public directory
 COPY --from=frontend-builder /app/client/dist ./public
