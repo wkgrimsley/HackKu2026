@@ -118,6 +118,8 @@ function GamePage() {
             const state = stateRef.current;
 
             const players = state.players || {};
+            const projectiles = state.projectiles || {};
+            const walls = state.walls || {};
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -127,11 +129,24 @@ function GamePage() {
 
                 ctx.fillStyle = "white";
                 ctx.fillRect(p.x, p.y, 20, 20);
-    }
+            }
+            for (let id in projectiles) {
+                const p = projectiles[id];
+                if (!p) continue;
 
-    requestAnimationFrame(render);
-};
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            for (let id in walls) {
+                const w = walls[id];
+                if (!w) continue;
 
+                ctx.fillRect(w.x, w.y, w.width, w.length);
+            }
+    
+            requestAnimationFrame(render);
+        };
         render();
     }, []);
 
