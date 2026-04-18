@@ -1,22 +1,31 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { socket } from "./socket"; // IMPORTANT: shared websocket
 
 function GamePage() {
     const { name } = useParams();
 
     const wsRef = useRef(null);
-    const stateRef = useRef({}); // latest server state
+    const stateRef = useRef({});
     const canvasRef = useRef(null);
     const mouseRef = useRef({ x: 0, y: 0 });
     const keysRef = useRef({});
 
-    // 1. NETWORK LAYER
+    // -----------------------------
+    // NETWORK LAYER
+    // -----------------------------
     useEffect(() => {
         const ws = new WebSocket("ws://localhost:8080");
         wsRef.current = ws;
 
-        ws.onopen = () => {
-            ws.send(JSON.stringify({ type: "join", name }));
+        // Login once socket is open
+        socket.onopen = () => {
+            console.log("Game socket connected");
+
+            socket.send(JSON.stringify({
+                type: "login",
+                name
+            }));
         };
 
         ws.onmessage = (event) => {
@@ -24,10 +33,14 @@ function GamePage() {
             stateRef.current = state;
         };
 
-        return () => ws.close();
+        return () => {
+            socket.onmessage = null;
+        };
     }, [name]);
 
-    // 2. INPUT SYSTEM
+    // -----------------------------
+    // INPUT SYSTEM
+    // -----------------------------
     useEffect(() => {
         const handleKeyDown = (e) => {
             keysRef.current[e.key.toLowerCase()] = true;
@@ -108,6 +121,10 @@ function GamePage() {
 
             for (let id in players) {
                 const p = players[id];
+
+                if (!p) continue;
+
+                ctx.fillStyle = "white";
                 ctx.fillRect(p.x, p.y, 20, 20);
                 console.log("world:", p.x, p.y);
                 console.log("screen:", screenX, screenY);
@@ -159,6 +176,9 @@ function GamePage() {
         requestAnimationFrame(loop);
     }, []);
 
+    // -----------------------------
+    // UI
+    // -----------------------------
     return (
         <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
             <h2
