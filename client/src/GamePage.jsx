@@ -4,14 +4,14 @@ import { socket } from "./socket";
 
 function GamePage() {
     const { name } = useParams();
-    const WsRef = useRef(null);
+
     const canvasRef = useRef(null);
-    const stateRef = useRef({ players: {} });
+    const stateRef = useRef({ players: {}, projectiles: {} });
     const keysRef = useRef({});
-    const mouseRef = useRef({});
+    const mouseRef = useRef({ x: 0, y: 0, isDown: false });
 
     /* =========================
-       WORLD SETTINGS (MATCH SERVER)
+       WORLD SETTINGS
     ========================= */
 
     const WORLD_WIDTH = 1000;
@@ -51,8 +51,9 @@ function GamePage() {
     useEffect(() => {
         const down = (e) => keysRef.current[e.key.toLowerCase()] = true;
         const up = (e) => keysRef.current[e.key.toLowerCase()] = false;
+
         const handleMouseMove = (e) => {
-            const rect = canvasRef.current.getBoundingClientRect();
+            const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
 
             const scaleX = canvasRef.current.width / rect.width;
@@ -62,27 +63,21 @@ function GamePage() {
             mouseRef.current.y = (e.clientY - rect.top) * scaleY;
         };
 
-        const handleMouseDown = () => {
-            mouseRef.current.isDown = true;
-        };
+        const handleMouseDown = () => mouseRef.current.isDown = true;
+        const handleMouseUp = () => mouseRef.current.isDown = false;
 
-        const handleMouseUp = () => {
-            mouseRef.current.isDown = false;
-        };
-
-        window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", down);
         window.addEventListener("keyup", up);
+        window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("mousedown", handleMouseDown);
         window.addEventListener("mouseup", handleMouseUp);
 
         return () => {
             window.removeEventListener("keydown", down);
             window.removeEventListener("keyup", up);
-            window.addEventListener("mousemove", handleMouseMove);
-            window.addEventListener("mousedown",handleMouseDown);
-            window.addEventListener("mouseup",handleMouseUp);
-
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mousedown", handleMouseDown);
+            window.removeEventListener("mouseup", handleMouseUp);
         };
     }, []);
 
@@ -92,7 +87,8 @@ function GamePage() {
 
     useEffect(() => {
         let last = 0;
-        const RATE = 1000/30;
+        const RATE = 1000 / 30;
+
         const loop = (t) => {
             if (t - last >= RATE) {
                 last = t;
@@ -101,8 +97,8 @@ function GamePage() {
                 if (keysRef.current["d"]) dx = 1;
                 if (keysRef.current["a"]) dx = -1;
 
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(JSON.stringify({
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
                         type: "input",
                         dx,
                         mouse: {
@@ -137,13 +133,9 @@ function GamePage() {
         window.addEventListener("resize", resize);
 
         const render = () => {
-            const { players } = stateRef.current;
+            const { players, projectiles } = stateRef.current;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            /* =========================
-               SCALE + CENTER WORLD
-            ========================= */
 
             const scale = Math.min(
                 canvas.width / WORLD_WIDTH,
@@ -153,40 +145,18 @@ function GamePage() {
             const offsetX = (canvas.width - WORLD_WIDTH * scale) / 2;
             const offsetY = (canvas.height - WORLD_HEIGHT * scale) / 2;
 
-            ctx.setTransform(
-                scale, 0,
-                0, scale,
-                offsetX,
-                offsetY
-            );
+            ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
 
-            /* =========================
-               DRAW BACKGROUND
-            ========================= */
-
+            /* BACKGROUND */
             ctx.fillStyle = "#0a0a0a";
             ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-            /* =========================
-               DRAW TRACK (IMPORTANT)
-            ========================= */
-
+            /* TRACK */
             ctx.strokeStyle = "white";
             ctx.lineWidth = 4;
-
-            ctx.strokeRect(
-                TRACK.x,
-                TRACK.y,
-                TRACK.size,
-                TRACK.size
-            );
+            ctx.strokeRect(TRACK.x, TRACK.y, TRACK.size, TRACK.size);
 
             /* PLAYERS */
-            const players = stateRef.current.players || {};
-            const projectiles = stateRef.current.projectiles || {};
-
-            ctx.fillStyle = "white";
-
             for (let id in players) {
                 const p = players[id];
 
@@ -201,22 +171,14 @@ function GamePage() {
 
                 ctx.shadowBlur = 0;
             }
+
+            /* PROJECTILES */
             for (let id in projectiles) {
                 const p = projectiles[id];
 
-                const size = p.size || 5;
-
+                ctx.fillStyle = "white";
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-            for (let id in projectiles) {
-                const p = projectiles[id];
-
-                const size = p.size || 5;
-
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                ctx.arc(p.x, p.y, p.size || 5, 0, Math.PI * 2);
                 ctx.fill();
             }
 
