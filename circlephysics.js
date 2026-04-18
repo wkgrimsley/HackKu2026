@@ -25,32 +25,32 @@ const ball = Matter.Bodies.circle(
     }
 );
 
-const topWall = Matter.Bodies.rectangle(
-    GAME_HEIGHT - 20,
-    -30,
-    GAME_WIDTH,
-    BORDER,
-    { ...wallSettings, label: "topWall" }
-);
-const bottomWall = Matter.Bodies.rectangle(
-    GAME_HEIGHT - 20,
-    GAME_HEIGHT + 33,
-    GAME_WIDTH,
-    BORDER,
-    { ...wallSettings, label: "bottomWall" }
-);
-const leftWall = Matter.Bodies.rectangle(-50, 160, 10, GAME_HEIGHT, {
-    ...wallSettings,
-    isSensor: true,
-    label: "leftWall"
-});
-const rightWall = Matter.Bodies.rectangle(
-    GAME_WIDTH + 50,
-    160,
-    10,
-    GAME_HEIGHT,
-    { ...wallSettings, isSensor: true, label: "rightWall" }
-);
+// const topWall = Matter.Bodies.rectangle(
+//     GAME_HEIGHT - 20,
+//     -30,
+//     GAME_WIDTH,
+//     BORDER,
+//     { ...wallSettings, label: "topWall" }
+// );   
+// const bottomWall = Matter.Bodies.rectangle(
+//     GAME_HEIGHT - 20,
+//     GAME_HEIGHT + 33,
+//     GAME_WIDTH,
+//     BORDER,
+//     { ...wallSettings, label: "bottomWall" }
+// );
+// const leftWall = Matter.Bodies.rectangle(-50, 160, 10, GAME_HEIGHT, {
+//     ...wallSettings,
+//     isSensor: true,
+//     label: "leftWall"
+// });
+// const rightWall = Matter.Bodies.rectangle(
+//     GAME_WIDTH + 50,
+//     160,
+//     10,
+//     GAME_HEIGHT,
+//     { ...wallSettings, isSensor: true, label: "rightWall" }
+// );
 
 this.physics = (entities, { time }) => {
     let engine = entities["physics"].engine;
@@ -59,17 +59,7 @@ this.physics = (entities, { time }) => {
     return entities;
 };
 
-this.movePlank = (entities, { touches }) => {
-    let move = touches.find(x => x.type === "move");
-    if (move) {
-    const newPosition = {
-        x: this.myPlank.position.x, // x is constant
-        y: this.myPlank.position.y + move.delta.pageY // add the movement distance to the current Y position
-    };      
-    Matter.Body.setPosition(this.myPlank, newPosition);
-    }
-    return entities;
-};
+
 
 // next: add code for binding to events for syncing the UI
 this.myChannel.bind("client-moved-ball", ({ position, velocity }) => {
