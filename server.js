@@ -2,7 +2,6 @@ const express = require("express");
 const path = require("path");
 const http = require("http");
 const WebSocket = require("ws");
-const Matter = require("matter-js");
 
 const app = express();
 const server = http.createServer(app);
@@ -12,7 +11,24 @@ app.use(express.static(path.join(__dirname, "public")));
 const wss = new WebSocket.Server({ server });
 
 /* =========================
-   MATCHMAKING STATE
+   GRAPH MAP
+========================= */
+
+const nodes = {
+    A: { x: 100, y: 300 },
+    B: { x: 400, y: 300 },
+    C: { x: 700, y: 300 },
+    D: { x: 400, y: 100 }
+};
+
+const edges = [
+    { id: 0, from: "A", to: "B" },
+    { id: 1, from: "B", to: "C" },
+    { id: 2, from: "B", to: "D" }
+];
+
+/* =========================
+   MATCH STATE
 ========================= */
 
 let matchmakingQueue = [];
@@ -23,46 +39,7 @@ let matches = new Map();
 ========================= */
 
 function createMatch() {
-    const { Engine, World, Bodies } = Matter;
-
-    const engine = Engine.create();
-
-    engine.world.gravity.x = 0;
-    engine.world.gravity.y = 0;
-    engine.world.gravity.scale = 0;
-
-    const world = engine.world;
-
-    const WORLD_WIDTH = 2000;
-    const WORLD_HEIGHT = 2000;
-
-    const nodes = {
-        A: { x: 100, y: 300 },
-        B: { x: 400, y: 300 },
-        C: { x: 700, y: 300 },
-        D: { x: 400, y: 100 }
-    };
-
-    const edges = [
-        { id: 0, from: "A", to: "B" },
-        { id: 1, from: "B", to: "C" },
-        { id: 2, from: "B", to: "D" }
-    ];
-
-    const walls = [
-        Bodies.rectangle(WORLD_WIDTH / 2, -10, WORLD_WIDTH, 20, { isStatic: true }),
-        Bodies.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT + 10, WORLD_WIDTH, 20, { isStatic: true }),
-        Bodies.rectangle(-10, WORLD_HEIGHT / 2, 20, WORLD_HEIGHT, { isStatic: true }),
-        Bodies.rectangle(WORLD_WIDTH + 10, WORLD_HEIGHT / 2, 20, WORLD_HEIGHT, { isStatic: true }),
-    ];
-
-    World.add(world, walls);
-
     return {
-        engine,
-        world,
-        nodes,
-        edges,
         players: {},
         projectiles: {},
         sockets: []
@@ -70,36 +47,52 @@ function createMatch() {
 }
 
 /* =========================
+   GRAPH HELPERS
+========================= */
+
+function getPosition(match, edgeId, t) {
+    const edge = match.edges.find(e => e.id === edgeId);
+    const a = nodes[edge.from];
+    const b = nodes[edge.to];
+
+    return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t
+    };
+}
+
+function getDirection(match, edgeId) {
+    const edge = match.edges.find(e => e.id === edgeId);
+    const a = nodes[edge.from];
+    const b = nodes[edge.to];
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+
+    return { x: dx / len, y: dy / len };
+}
+
+/* =========================
    MATCHMAKING
 ========================= */
 
 function tryMatchmake() {
-    const PLAYERS_PER_MATCH = 2;
-
-    while (matchmakingQueue.length >= PLAYERS_PER_MATCH) {
-        const group = matchmakingQueue.splice(0, PLAYERS_PER_MATCH);
+    while (matchmakingQueue.length >= 2) {
+        const group = matchmakingQueue.splice(0, 2);
 
         const roomId = Math.random().toString(36).slice(2);
         const match = createMatch();
+        match.edges = edges;
+        match.nodes = nodes;
 
-        group.forEach((ws, index) => {
+        group.forEach((ws, i) => {
             const id = ws.id;
 
-            const body = Matter.Bodies.rectangle(
-                100 + index * 50,
-                100,
-                20,
-                20,
-                { frictionAir: 0.2 }
-            );
-
-            Matter.World.add(match.world, body);
-
             match.players[id] = {
-                body,
                 edge: 0,
                 t: 0,
-                input: { dx: 0, dy: 0, shoot: false }
+                input: { dx: 0, dy: 0 }
             };
 
             match.sockets.push(ws);
@@ -112,43 +105,8 @@ function tryMatchmake() {
         });
 
         matches.set(roomId, match);
+        console.log("Match created:", roomId);
     }
-}
-
-/* =========================
-   GRAPH HELPERS
-========================= */
-
-function getPosition(match, edgeId, t) {
-    const edge = match.edges.find(e => e.id === edgeId);
-    const a = match.nodes[edge.from];
-    const b = match.nodes[edge.to];
-
-    return {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t
-    };
-}
-
-/* =========================
-   SHOOT
-========================= */
-
-function shoot(match, playerId) {
-    const p = match.players[playerId];
-    if (!p) return;
-
-    const pos = getPosition(match, p.edge, p.t);
-
-    const id = Math.random().toString(36).slice(2);
-
-    match.projectiles[id] = {
-        x: pos.x,
-        y: pos.y,
-        vx: 0,
-        vy: -8,
-        owner: playerId
-    };
 }
 
 /* =========================
@@ -162,23 +120,24 @@ wss.on("connection", (ws) => {
     ws.on("message", (msg) => {
         const data = JSON.parse(msg);
 
+        /* JOIN MATCHMAKING */
         if (data.type === "join_match") {
             matchmakingQueue.push(ws);
             tryMatchmake();
         }
 
+        /* INPUT */
         if (data.type === "input") {
             const match = matches.get(ws.roomId);
             if (!match) return;
 
-            const player = match.players[ws.id];
-            if (!player) return;
+            const p = match.players[ws.id];
+            if (!p) return;
 
-            player.input = data;
-
-            if (data.shoot) {
-                shoot(match, ws.id);
-            }
+            p.input = {
+                dx: data.dx || 0,
+                dy: data.dy || 0
+            };
         }
     });
 
@@ -196,21 +155,43 @@ wss.on("connection", (ws) => {
 });
 
 /* =========================
-   GAME LOOP
+   GAME LOOP (INPUT DRIVEN)
 ========================= */
 
 setInterval(() => {
-
     matches.forEach((match) => {
 
-        /* PLAYERS MOVE */
+        const SPEED = 0.02;
+
+        /* MOVE PLAYERS (INPUT CONTROLLED) */
         for (let id in match.players) {
             const p = match.players[id];
 
-            p.t += 0.015;
+            const edge = match.edges.find(e => e.id === p.edge);
+            if (!edge) continue;
 
+            const from = match.nodes[edge.from];
+            const to = match.nodes[edge.to];
+
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const len = Math.hypot(dx, dy);
+
+            const ux = dx / len;
+            const uy = dy / len;
+
+            const move =
+                (p.input.dx || 0) * ux +
+                (p.input.dy || 0) * uy;
+
+            p.t += move * SPEED;
+
+            if (p.t < 0) p.t = 0;
+            if (p.t > 1) p.t = 1;
+
+            /* JUNCTION TRANSITION */
             if (p.t >= 1) {
-                const currentNode = match.edges.find(e => e.id === p.edge).to;
+                const currentNode = edge.to;
                 const options = match.edges.filter(e => e.from === currentNode);
 
                 if (p.input.dx > 0) p.edge = options[0]?.id ?? p.edge;
@@ -220,50 +201,12 @@ setInterval(() => {
             }
         }
 
-        /* PROJECTILES */
-        for (let id in match.projectiles) {
-            const pr = match.projectiles[id];
-
-            pr.x += pr.vx;
-            pr.y += pr.vy;
-
-            if (pr.x < -1000 || pr.x > 2000 || pr.y < -1000 || pr.y > 2000) {
-                delete match.projectiles[id];
-            }
-        }
-
-        /* COLLISIONS */
-        for (let pid in match.players) {
-            const p = match.players[pid];
-            const pos = getPosition(match, p.edge, p.t);
-
-            for (let prId in match.projectiles) {
-                const pr = match.projectiles[prId];
-
-                const dx = pr.x - pos.x;
-                const dy = pr.y - pos.y;
-
-                if (Math.hypot(dx, dy) < 15) {
-                    if (pr.owner !== pid) {
-                        delete match.projectiles[prId];
-                        console.log("HIT:", pid);
-                    }
-                }
-            }
-        }
-
         /* BUILD STATE */
-        const state = {
-            players: {},
-            projectiles: match.projectiles
-        };
+        const state = { players: {} };
 
         for (let id in match.players) {
-            state.players[id] = getPosition(
-                match,
-                match.players[id].edge,
-                match.players[id].t
-            );
+            const p = match.players[id];
+            state.players[id] = getPosition(match, p.edge, p.t);
         }
 
         /* SEND */
@@ -282,6 +225,6 @@ setInterval(() => {
    START SERVER
 ========================= */
 
-server.listen(80, "0.0.0.0", () => {
+server.listen(80, () => {
     console.log("Server running on http://localhost:80");
 });
