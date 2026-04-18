@@ -101,7 +101,11 @@ function GamePage() {
                     wsRef.current.send(JSON.stringify({
                         type: "input",
                         dx,
-                        mouseRef
+                        mouse: {
+                            x: mouseRef.current.x,
+                            y: mouseRef.current.y,
+                            isDown: mouseRef.current.isDown
+                        }
                     }));
                 }
             }
