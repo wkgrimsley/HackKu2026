@@ -11,15 +11,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // WebSocket server
 const wss = new WebSocket.Server({ server });
-/*cd client
-npm install
-npm run build
-  62 cd ..
-Remove-Item -Recurse -Force .\public\
-  67 mkdir public
-  68 Copy-Item -Recurse -Force .\dist* ..\public\
-  69 docker build -t mygame .
-  70 docker run -d -p 80:80 mygame*/
+
 let players = {};
 
 wss.on("connection", (ws) => {
