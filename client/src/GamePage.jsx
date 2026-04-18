@@ -141,6 +141,7 @@ function GamePage() {
 
             /* PLAYERS */
             const players = stateRef.current.players || {};
+            const projectiles = stateRef.current.projectiles || {};
 
             ctx.fillStyle = "white";
 
@@ -155,6 +156,15 @@ function GamePage() {
                     size,
                     size
                 );
+            }
+            for (let id in projectiles) {
+                const p = projectiles[id];
+
+                const size = p.size || 5;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                ctx.fill();
             }
 
             requestAnimationFrame(render);
