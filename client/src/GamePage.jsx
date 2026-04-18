@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { socket } from "./socket"; // IMPORTANT: shared websocket
+import { socket } from "./socket"; // SINGLE shared socket
 
 function GamePage() {
     const { name } = useParams();
@@ -12,15 +12,13 @@ function GamePage() {
     const keysRef = useRef({});
 
     // -----------------------------
-    // NETWORK LAYER
+    // NETWORK
     // -----------------------------
     useEffect(() => {
-        const ws = new WebSocket("ws://localhost:8080");
-        wsRef.current = ws;
+        wsRef.current = socket;
 
-        // Login once socket is open
         socket.onopen = () => {
-            console.log("Game socket connected");
+            console.log("Connected");
 
             socket.send(JSON.stringify({
                 type: "login",
@@ -28,7 +26,7 @@ function GamePage() {
             }));
         };
 
-        ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
             const state = JSON.parse(event.data);
             stateRef.current = state;
         };
@@ -44,25 +42,23 @@ function GamePage() {
     useEffect(() => {
         const handleKeyDown = (e) => {
             keysRef.current[e.key.toLowerCase()] = true;
-            // console.log("down");
         };
 
         const handleKeyUp = (e) => {
             keysRef.current[e.key.toLowerCase()] = false;
-            // console.log("up");
         };
 
         const handleMouseMove = (e) => {
-            const rect = canvasRef.current.getBoundingClientRect();
+            const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
 
             mouseRef.current.x = e.clientX - rect.left;
             mouseRef.current.y = e.clientY - rect.top;
         };
 
-        window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("keyup", handleKeyUp);
+        window.addEventListener("mousemove", handleMouseMove);
 
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
@@ -71,102 +67,34 @@ function GamePage() {
         };
     }, []);
 
+    // -----------------------------
+    // SEND INPUT LOOP (30 TPS)
+    // -----------------------------
     useEffect(() => {
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
+        let last = 0;
+        const RATE = 1000 / 30;
 
-        const WORLD_WIDTH = 2000;
-        const WORLD_HEIGHT = 2000;
-
-        let dpr = window.devicePixelRatio || 1;
-
-        const resize = () => {
-            dpr = window.devicePixelRatio || 1;
-
-            canvas.width = window.innerWidth * dpr;
-            canvas.height = window.innerHeight * dpr;
-
-            canvas.style.width = window.innerWidth + "px";
-            canvas.style.height = window.innerHeight + "px";
-        };
-
-        resize();
-        window.addEventListener("resize", resize);
-
-        const render = () => {
-            // clear full pixel buffer
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // compute world scale
-            const scale = Math.min(
-                canvas.width / (WORLD_WIDTH * dpr),
-                canvas.height / (WORLD_HEIGHT * dpr)
-            );
-
-            // center world
-            const offsetX = (canvas.width / dpr - WORLD_WIDTH * scale) / 2;
-            const offsetY = (canvas.height / dpr - WORLD_HEIGHT * scale) / 2;
-
-            // apply BOTH transforms
-            ctx.setTransform(
-                scale * dpr, 0,
-                0, scale * dpr,
-                offsetX * dpr,
-                offsetY * dpr
-            );
-
-            // draw players
-            const players = stateRef.current;
-
-            for (let id in players) {
-                const p = players[id];
-
-                if (!p) continue;
-
-                ctx.fillStyle = "white";
-                ctx.fillRect(p.x, p.y, 20, 20);
-                console.log("world:", p.x, p.y);
-                console.log("screen:", screenX, screenY);
-            }
-
-            requestAnimationFrame(render);
-        };
-
-        render();
-
-        return () => window.removeEventListener("resize", resize);
-    }, []);
-
-    useEffect(() => {
-        let lastSent = 0;
-        const SEND_RATE = 1000 / 30; // 30 packets/sec
-
-        const loop = (time) => {
-            if (time - lastSent >= SEND_RATE) {
-                lastSent = time;
+        const loop = (t) => {
+            if (t - last >= RATE) {
+                last = t;
 
                 const keys = keysRef.current;
 
-                let dx = 0, dy = 0;
+                let dx = 0;
+                let dy = 0;
 
                 if (keys["w"]) dy -= 1;
                 if (keys["s"]) dy += 1;
                 if (keys["a"]) dx -= 1;
                 if (keys["d"]) dx += 1;
 
-                const packet = {
-                    type: "input",
-                    dx,
-                    dy,
-                    mouse: {
-                        x: mouseRef.current.x,
-                        y: mouseRef.current.y
-                    }
-                };
-                
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(JSON.stringify(packet));
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "input",
+                        dx,
+                        dy,
+                        mouse: mouseRef.current
+                    }));
                 }
             }
 
@@ -177,32 +105,49 @@ function GamePage() {
     }, []);
 
     // -----------------------------
+    // RENDER LOOP
+    // -----------------------------
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d");
+
+        const WORLD_WIDTH = 2000;
+        const WORLD_HEIGHT = 2000;
+
+        const render = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const players = stateRef.current;
+
+            for (let id in players) {
+                const p = players[id];
+                if (!p) continue;
+
+                ctx.fillStyle = "white";
+                ctx.fillRect(p.x, p.y, 20, 20);
+            }
+
+            requestAnimationFrame(render);
+        };
+
+        render();
+    }, []);
+
+    // -----------------------------
     // UI
     // -----------------------------
     return (
-        <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
-            <h2
-                style={{
-                    position: "absolute",
-                    top: "10px",
-                    left: "10px",
-                    zIndex: 10,
-                    color: "black",
-                    margin: 0
-                }}
-            >
+        <div style={{ width: "100vw", height: "100vh", background: "#111" }}>
+            <h2 style={{ position: "absolute", color: "white", margin: 10 }}>
                 Player: {name}
             </h2>
+
             <canvas
                 ref={canvasRef}
-                style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "block",
-                    border: "2px solid black"
-                }}
+                width={window.innerWidth}
+                height={window.innerHeight}
+                style={{ display: "block" }}
             />
-
         </div>
     );
 }
