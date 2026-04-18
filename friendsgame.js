@@ -1,17 +1,20 @@
-import React, { useEffect, useState } from "react";
-import { View } from "react-native";
-import { GameEngine } from "react-native-game-engine";
-import Matter from "matter-js";
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 /* =========================
-   GRAPH (PATH + WALL SOURCE)
+   GRAPH WORLD
 ========================= */
 
 const nodes = {
-  A: { x: 50, y: 200 },
-  B: { x: 300, y: 200 }, // center (T intersection)
-  C: { x: 550, y: 200 },
-  D: { x: 300, y: 50 }
+  A: { x: 100, y: 300 },
+  B: { x: 400, y: 300 }, // intersection
+  C: { x: 700, y: 300 },
+  D: { x: 400, y: 100 }
 };
 
 const edges = [
@@ -21,11 +24,11 @@ const edges = [
 ];
 
 /* =========================
-   MATTER ENGINE (PROJECTILES)
+   GAME STATE
 ========================= */
 
-const engine = Matter.Engine.create();
-const world = engine.world;
+let players = {};
+let projectiles = {};
 
 /* =========================
    HELPERS
@@ -33,246 +36,198 @@ const world = engine.world;
 
 function getPosition(edgeId, t) {
   const edge = edges.find(e => e.id === edgeId);
-  const from = nodes[edge.from];
-  const to = nodes[edge.to];
+  const a = nodes[edge.from];
+  const b = nodes[edge.to];
 
   return {
-    x: from.x + (to.x - from.x) * t,
-    y: from.y + (to.y - from.y) * t
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t
   };
 }
 
 function getDirection(edgeId) {
   const edge = edges.find(e => e.id === edgeId);
-  const from = nodes[edge.from];
-  const to = nodes[edge.to];
+  const a = nodes[edge.from];
+  const b = nodes[edge.to];
 
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
 
   return { x: dx / len, y: dy / len };
 }
 
-function getEdgesFromNode(nodeId) {
-  return edges.filter(e => e.from === nodeId);
-}
-
-function chooseEdge(nodeId, input) {
-  const options = getEdgesFromNode(nodeId);
-
-  if (input === "UP") return options.find(e => nodes[e.to].y < nodes[nodeId].y);
-  if (input === "DOWN") return options.find(e => nodes[e.to].y > nodes[nodeId].y);
-  if (input === "LEFT") return options.find(e => nodes[e.to].x < nodes[nodeId].x);
-  if (input === "RIGHT") return options.find(e => nodes[e.to].x > nodes[nodeId].x);
-
-  return options[0];
-}
-
 /* =========================
-   CREATE WALLS FROM EDGES
+   SHOOT PROJECTILE
 ========================= */
 
-function createWall(from, to) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
+function shoot(playerId) {
+  const p = players[playerId];
+  if (!p) return;
 
-  const length = Math.hypot(dx, dy);
-  const angle = Math.atan2(dy, dx);
+  const pos = getPosition(p.edge, p.t);
+  const dir = getDirection(p.edge);
 
-  return Matter.Bodies.rectangle(
-    (from.x + to.x) / 2,
-    (from.y + to.y) / 2,
-    length + 4, // overlap to avoid gaps
-    12,         // thickness
-    {
-      isStatic: true,
-      restitution: 1
-    }
-  );
-}
+  const id = Math.random().toString(36).slice(2);
 
-const walls = edges.map(edge => {
-  const from = nodes[edge.from];
-  const to = nodes[edge.to];
-  return createWall(from, to);
-});
-
-Matter.World.add(world, walls);
-
-/* =========================
-   SHOOTING
-========================= */
-
-function shoot(player, entities) {
-  const pos = getPosition(player.edge, player.t);
-  const dir = getDirection(player.edge);
-
-  const bullet = Matter.Bodies.circle(pos.x, pos.y, 5, {
-    frictionAir: 0,
-    restitution: 1,
-    friction: 0,
-    frictionStatic: 0
-  });
-
-  Matter.Body.setVelocity(bullet, {
-    x: dir.x * 8,
-    y: dir.y * 8
-  });
-
-  Matter.World.add(world, bullet);
-
-  entities.projectiles.push({
-    body: bullet,
+  projectiles[id] = {
     x: pos.x,
     y: pos.y,
-    renderer: <Circle color="red" />
-  });
+    vx: dir.x * 8,
+    vy: dir.y * 8,
+    owner: playerId
+  };
 }
 
 /* =========================
-   SYSTEMS
+   PLAYER CONNECTION
 ========================= */
 
-const MovePlayer = (entities, { input }) => {
-  const player = entities.player;
+wss.on("connection", (ws) => {
+  const id = Math.random().toString(36).slice(2);
 
-  let dirInput = null;
-  let shootPressed = false;
+  players[id] = {
+    edge: 0,
+    t: 0,
+    input: { dx: 0, dy: 0, shoot: false }
+  };
 
-  input.forEach(i => {
-    if (i.type === "move") dirInput = i.direction;
-    if (i.type === "shoot") shootPressed = true;
+  ws.id = id;
+
+  ws.on("message", (msg) => {
+    const data = JSON.parse(msg);
+
+    if (data.type === "input") {
+      players[id].input = data;
+
+      if (data.shoot) {
+        shoot(id);
+      }
+    }
   });
 
-  const speed = 0.01;
-  player.t += speed;
+  ws.on("close", () => {
+    delete players[id];
+  });
+});
 
-  if (player.t >= 1) {
-    const currentNode = edges.find(e => e.id === player.edge).to;
-    const nextEdge = chooseEdge(currentNode, dirInput);
+/* =========================
+   COLLISION CONSTANTS
+========================= */
 
-    if (nextEdge) {
-      player.edge = nextEdge.id;
-      player.t = 0;
-    } else {
-      player.t = 1;
+const PLAYER_RADIUS = 10;
+const PROJECTILE_RADIUS = 5;
+
+/* =========================
+   GAME LOOP
+========================= */
+
+setInterval(() => {
+
+  /* =========================
+     MOVE PLAYERS (GRAPH SYSTEM)
+  ========================= */
+
+  for (let id in players) {
+    const p = players[id];
+
+    p.t += 0.015;
+
+    if (p.t >= 1) {
+      const currentNode = edges.find(e => e.id === p.edge).to;
+      const options = edges.filter(e => e.from === currentNode);
+
+      // simple direction logic
+      if (p.input.dx > 0) p.edge = options[0]?.id ?? p.edge;
+      if (p.input.dy < 0) p.edge = options[1]?.id ?? p.edge;
+
+      p.t = 0;
     }
   }
 
-  const pos = getPosition(player.edge, player.t);
-  player.x = pos.x;
-  player.y = pos.y;
+  /* =========================
+     MOVE PROJECTILES
+  ========================= */
 
-  if (shootPressed) {
-    shoot(player, entities);
+  for (let id in projectiles) {
+    const pr = projectiles[id];
+
+    pr.x += pr.vx;
+    pr.y += pr.vy;
+
+    // remove if out of bounds
+    if (
+      pr.x < -1000 || pr.x > 2000 ||
+      pr.y < -1000 || pr.y > 2000
+    ) {
+      delete projectiles[id];
+      continue;
+    }
   }
 
-  return entities;
-};
+  /* =========================
+     COLLISION DETECTION
+  ========================= */
 
-const PhysicsSystem = (entities) => {
-  Matter.Engine.update(engine, 1000 / 60);
+  for (let pid in players) {
+    const p = players[pid];
+    const pos = getPosition(p.edge, p.t);
 
-  entities.projectiles.forEach(p => {
-    p.x = p.body.position.x;
-    p.y = p.body.position.y;
-  });
+    for (let prId in projectiles) {
+      const pr = projectiles[prId];
 
-  return entities;
-};
+      const dx = pr.x - pos.x;
+      const dy = pr.y - pos.y;
 
-/* =========================
-   RENDER
-========================= */
+      const dist = Math.hypot(dx, dy);
 
-const Circle = ({ x, y, color = "blue" }) => (
-  <View
-    style={{
-      position: "absolute",
-      width: 20,
-      height: 20,
-      borderRadius: 10,
-      backgroundColor: color,
-      left: x - 10,
-      top: y - 10
-    }}
-  />
-);
+      if (dist < PLAYER_RADIUS + PROJECTILE_RADIUS) {
 
-const Line = ({ from, to }) => (
-  <View
-    style={{
-      position: "absolute",
-      left: from.x,
-      top: from.y,
-      width: Math.hypot(to.x - from.x, to.y - from.y),
-      height: 2,
-      backgroundColor: "black",
-      transform: [
-        {
-          rotate: `${Math.atan2(to.y - from.y, to.x - from.x)}rad`
+        // 💥 HIT DETECTED
+
+        if (pr.owner !== pid) {
+          delete projectiles[prId];
+
+          console.log(`Player ${pid} hit by ${pr.owner}`);
+
+          // optional: respawn or remove player
+          // p.edge = 0; p.t = 0;
         }
-      ]
-    }}
-  />
-);
+      }
+    }
+  }
 
-/* =========================
-   MAIN GAME
-========================= */
+  /* =========================
+     BUILD STATE
+  ========================= */
 
-export default function Game() {
-  const [engineRef, setEngineRef] = useState(null);
-
-  const entities = {
-    player: {
-      edge: 0,
-      t: 0,
-      x: nodes.A.x,
-      y: nodes.A.y,
-      renderer: <Circle />
-    },
-    projectiles: []
+  const state = {
+    players: {},
+    projectiles
   };
 
-  edges.forEach((edge, i) => {
-    entities["line" + i] = {
-      from: nodes[edge.from],
-      to: nodes[edge.to],
-      renderer: <Line />
-    };
+  for (let id in players) {
+    state.players[id] = getPosition(players[id].edge, players[id].t);
+  }
+
+  /* =========================
+     BROADCAST STATE
+  ========================= */
+
+  const msg = JSON.stringify(state);
+
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
   });
 
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (!engineRef) return;
+}, 1000 / 30);
 
-      let direction = null;
+/* =========================
+   START SERVER
+========================= */
 
-      if (e.key === "ArrowUp") direction = "UP";
-      if (e.key === "ArrowDown") direction = "DOWN";
-      if (e.key === "ArrowLeft") direction = "LEFT";
-      if (e.key === "ArrowRight") direction = "RIGHT";
-
-      if (direction) {
-        engineRef.dispatch({ type: "move", direction });
-      }
-
-      if (e.key === " ") {
-        engineRef.dispatch({ type: "shoot" });
-      }
-    };
-
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [engineRef]);
-
-  return (
-    <GameEngine
-      ref={(ref) => setEngineRef(ref)}
-      systems={[MovePlayer, PhysicsSystem]}
-      entities={entities}
-    />
-  );
-}
+server.listen(8080, () => {
+  console.log("Server running on ws://localhost:8080");
+});
