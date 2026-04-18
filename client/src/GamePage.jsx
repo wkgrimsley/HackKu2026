@@ -115,9 +115,11 @@ function GamePage() {
         const WORLD_HEIGHT = 2000;
 
         const render = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const state = stateRef.current;
 
-            const players = stateRef.current;
+            const players = state.players || {};
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             for (let id in players) {
                 const p = players[id];
@@ -125,10 +127,10 @@ function GamePage() {
 
                 ctx.fillStyle = "white";
                 ctx.fillRect(p.x, p.y, 20, 20);
-            }
+    }
 
-            requestAnimationFrame(render);
-        };
+    requestAnimationFrame(render);
+};
 
         render();
     }, []);
