@@ -8,6 +8,7 @@ function GamePage() {
     const stateRef = useRef({});
     const canvasRef = useRef(null);
     const keysRef = useRef({});
+    const mouseRef = useRef({});
 
     /* =========================
        NETWORK
@@ -37,6 +38,7 @@ function GamePage() {
 
     useEffect(() => {
         const down = (e) => {
+            e.preventDefault();
             keysRef.current[e.key.toLowerCase()] = true;
         };
 
@@ -44,12 +46,37 @@ function GamePage() {
             keysRef.current[e.key.toLowerCase()] = false;
         };
 
+        const handleMouseMove = (e) => {
+            const rect = canvasRef.current.getBoundingClientRect();
+            if (!rect) return;
+
+            const scaleX = canvasRef.current.width / rect.width;
+            const scaleY = canvasRef.current.height / rect.height;
+
+            mouseRef.current.x = (e.clientX - rect.left) * scaleX;
+            mouseRef.current.y = (e.clientY - rect.top) * scaleY;
+        };
+
+        const handleMouseDown = () => {
+            mouseRef.current.isDown = true;
+        };
+
+        const handleMouseUp = () => {
+            mouseRef.current.isDown = false;
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", down);
         window.addEventListener("keyup", up);
+        window.addEventListener("mousedown", handleMouseDown);
+        window.addEventListener("mouseup", handleMouseUp);
 
         return () => {
             window.removeEventListener("keydown", down);
             window.removeEventListener("keyup", up);
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mousedown", handleMouseDown);
+            window.removeEventListener("mouseup", handleMouseUp);
         };
     }, []);
 
@@ -73,7 +100,8 @@ function GamePage() {
                 if (wsRef.current?.readyState === WebSocket.OPEN) {
                     wsRef.current.send(JSON.stringify({
                         type: "input",
-                        dx
+                        dx,
+                        mouseRef
                     }));
                 }
             }

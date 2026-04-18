@@ -127,7 +127,7 @@ wss.on("connection", (ws) => {
             const p = match.players[ws.id];
             if (!p) return;
 
-            p.input = data;
+            p.input = data
         }
     });
 
