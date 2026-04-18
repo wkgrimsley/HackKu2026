@@ -1,13 +1,28 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 function NamePage() {
     const [input, setInput] = useState("");
     const navigate = useNavigate();
+    const ws = useRef(null);
+
+    useEffect(() => {
+        ws.current = new WebSocket("ws://localhost:3000");
+
+        ws.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "match_found") {
+                navigate(`/game/${data.roomId}`);
+            }
+        };
+
+        return () => ws.current.close();
+    }, [navigate]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        navigate(`/player/${input}`);
+        ws.current.send(JSON.stringify({ type: "login", name: input }));
+        ws.current.send(JSON.stringify({ type: "join_match" }));
     };
 
     return (
