@@ -1,1 +1,2 @@
-# HackKu2026
+# game-hackku
+game for hacku
