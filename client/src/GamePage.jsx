@@ -1,34 +1,47 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { socket } from "./socket";
 
 function GamePage() {
     const { name } = useParams();
-
-    const wsRef = useRef(null);
-    const stateRef = useRef({});
+    const WsRef = useRef(null);
     const canvasRef = useRef(null);
+    const stateRef = useRef({ players: {} });
     const keysRef = useRef({});
+    const mouseRef = useRef({});
+
+    /* =========================
+       WORLD SETTINGS (MATCH SERVER)
+    ========================= */
+
+    const WORLD_WIDTH = 1000;
+    const WORLD_HEIGHT = 800;
+
+    const TRACK = {
+        x: 200,
+        y: 100,
+        size: 600
+    };
 
     /* =========================
        NETWORK
     ========================= */
 
     useEffect(() => {
-        const ws = new WebSocket("ws://localhost:80");
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-            ws.send(JSON.stringify({
+        socket.onopen = () => {
+            socket.send(JSON.stringify({
                 type: "join_match",
                 name
             }));
         };
 
-        ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
             stateRef.current = JSON.parse(event.data);
         };
 
-        return () => ws.close();
+        return () => {
+            socket.onmessage = null;
+        };
     }, [name]);
 
     /* =========================
@@ -36,20 +49,40 @@ function GamePage() {
     ========================= */
 
     useEffect(() => {
-        const down = (e) => {
-            keysRef.current[e.key.toLowerCase()] = true;
+        const down = (e) => keysRef.current[e.key.toLowerCase()] = true;
+        const up = (e) => keysRef.current[e.key.toLowerCase()] = false;
+        const handleMouseMove = (e) => {
+            const rect = canvasRef.current.getBoundingClientRect();
+            if (!rect) return;
+
+            const scaleX = canvasRef.current.width / rect.width;
+            const scaleY = canvasRef.current.height / rect.height;
+
+            mouseRef.current.x = (e.clientX - rect.left) * scaleX;
+            mouseRef.current.y = (e.clientY - rect.top) * scaleY;
         };
 
-        const up = (e) => {
-            keysRef.current[e.key.toLowerCase()] = false;
+        const handleMouseDown = () => {
+            mouseRef.current.isDown = true;
         };
 
+        const handleMouseUp = () => {
+            mouseRef.current.isDown = false;
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
         window.addEventListener("keydown", down);
         window.addEventListener("keyup", up);
-
+        window.addEventListener("mousedown",handleMouseDown);
+        window.addEventListener("mouseup",handleMouseUp);
+        
         return () => {
             window.removeEventListener("keydown", down);
             window.removeEventListener("keyup", up);
+            window.addEventListener("mousemove", handleMouseMove);
+            window.addEventListener("mousedown",handleMouseDown);
+            window.addEventListener("mouseup",handleMouseUp);
+
         };
     }, []);
 
@@ -59,23 +92,21 @@ function GamePage() {
 
     useEffect(() => {
         let last = 0;
-        const RATE = 1000 / 30;
-
+        const RATE = 1000/30;
         const loop = (t) => {
             if (t - last >= RATE) {
                 last = t;
 
                 let dx = 0;
-
                 if (keysRef.current["d"]) dx = 1;
                 if (keysRef.current["a"]) dx = -1;
 
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(JSON.stringify({
-                        type: "input",
-                        dx
-                    }));
-                }
+
+                socket.send(JSON.stringify({
+                    type: "input",
+                    dx,
+                    mouseRef
+                }));
             }
 
             requestAnimationFrame(loop);
@@ -92,54 +123,95 @@ function GamePage() {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
 
-        const TRACK = {
-            x: 150,
-            y: 50,
-            width: 900,
-            height: 900
+        const resize = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
         };
 
+        resize();
+        window.addEventListener("resize", resize);
+
         const render = () => {
+            const { players } = stateRef.current;
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            /* TRACK */
+            /* =========================
+               SCALE + CENTER WORLD
+            ========================= */
+
+            const scale = Math.min(
+                canvas.width / WORLD_WIDTH,
+                canvas.height / WORLD_HEIGHT
+            );
+
+            const offsetX = (canvas.width - WORLD_WIDTH * scale) / 2;
+            const offsetY = (canvas.height - WORLD_HEIGHT * scale) / 2;
+
+            ctx.setTransform(
+                scale, 0,
+                0, scale,
+                offsetX,
+                offsetY
+            );
+
+            /* =========================
+               DRAW BACKGROUND
+            ========================= */
+
+            ctx.fillStyle = "#0a0a0a";
+            ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+            /* =========================
+               DRAW TRACK (IMPORTANT)
+            ========================= */
+
             ctx.strokeStyle = "white";
             ctx.lineWidth = 4;
-            ctx.strokeRect(TRACK.x, TRACK.y, TRACK.width, TRACK.height);
 
-            /* PLAYERS */
-            const players = stateRef.current.players || {};
+            ctx.strokeRect(
+                TRACK.x,
+                TRACK.y,
+                TRACK.size,
+                TRACK.size
+            );
 
-            ctx.fillStyle = "white";
+            /* =========================
+               DRAW PLAYERS
+            ========================= */
 
             for (let id in players) {
                 const p = players[id];
 
-                const size = p.size || 30;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 15;
 
-                ctx.fillRect(
-                    p.x - size / 2,
-                    p.y - size / 2,
-                    size,
-                    size
-                );
+                ctx.fillStyle = p.color;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.shadowBlur = 0;
             }
 
             requestAnimationFrame(render);
         };
 
         render();
+
+        return () => window.removeEventListener("resize", resize);
     }, []);
 
     return (
-        <div>
-            <canvas
-                ref={canvasRef}
-                width={1200}
-                height={1000}
-                style={{ background: "#111" }}
-            />
-        </div>
+        <canvas
+            ref={canvasRef}
+            style={{
+                width: "100vw",
+                height: "100vh",
+                display: "block"
+            }}
+        />
     );
 }
 
