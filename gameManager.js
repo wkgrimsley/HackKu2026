@@ -1,65 +1,89 @@
+const matches = new Map();
+
+/* =========================
+   TRACK SETTINGS
+========================= */
+
 const TRACK = {
-    x: 150,
-    y: 50,
-    width: 900,
-    height: 900
+    x: 200,
+    y: 100,
+    size: 600
 };
 
 const PLAYER_SIZE = 30;
+const SPEED = 12;
 
 /* =========================
-   MATCH STORAGE
+   TRACK FUNCTION
 ========================= */
 
-const matches = new Map();
+function getTrackPoint(t) {
+    const s = TRACK.size;
+    const p = s * 4;
+
+    t = ((t % p) + p) % p;
+
+    const x = TRACK.x;
+    const y = TRACK.y;
+
+    if (t < s) return { x: x + t, y: y };
+    t -= s;
+
+    if (t < s) return { x: x + s, y: y + t };
+    t -= s;
+
+    if (t < s) return { x: x + s - t, y: y + s };
+    t -= s;
+
+    return { x: x, y: y + s - t };
+}
 
 /* =========================
    CREATE MATCH
 ========================= */
 
-function createMatch() {
-    const id = Math.random().toString(36).slice(2);
-
+function createMatch(roomId) {
     const match = {
-        id,
+        id: roomId,
         players: {},
         sockets: []
     };
 
-    matches.set(id, match);
+    matches.set(roomId, match);
 
-    return match;
-}
+    return {
+        addPlayer(ws, color) {
+            const startT = Math.random() * TRACK.size * 4;
 
-/* =========================
-   TRACK POSITION
-========================= */
+            match.players[ws.id] = {
+                trackT: startT,
+                input: { dx: 0 },
+                color
+            };
 
-function getTrackPoint(t) {
-    const w = TRACK.width;
-    const h = TRACK.height;
+            match.sockets.push(ws);
 
-    const perimeter = 2 * (w + h);
+            ws.on("message", (msg) => {
+                const data = JSON.parse(msg);
 
-    t = ((t % perimeter) + perimeter) % perimeter;
+                if (data.type === "input") {
+                    const p = match.players[ws.id];
+                    if (!p) return;
+                    p.input = data;
+                }
+            });
 
-    if (t < w) return { x: TRACK.x + t, y: TRACK.y };
-    t -= w;
-
-    if (t < h) return { x: TRACK.x + w, y: TRACK.y + t };
-    t -= h;
-
-    if (t < w) return { x: TRACK.x + w - t, y: TRACK.y + h };
-    t -= w;
-
-    return { x: TRACK.x, y: TRACK.y + h - t };
+            ws.on("close", () => {
+                delete match.players[ws.id];
+                match.sockets = match.sockets.filter(s => s !== ws);
+            });
+        }
+    };
 }
 
 /* =========================
    GAME LOOP
 ========================= */
-
-const SPEED = 12;
 
 setInterval(() => {
 
@@ -69,19 +93,22 @@ setInterval(() => {
         for (let id in match.players) {
             const p = match.players[id];
 
-            if (!p.input) p.input = { dx: 0 };
-
-            if (p.input.dx > 0) p.trackPos += SPEED;
-            if (p.input.dx < 0) p.trackPos -= SPEED;
+            if (p.input.dx > 0) p.trackT += SPEED;
+            if (p.input.dx < 0) p.trackT -= SPEED;
         }
 
         /* BUILD STATE */
         const state = { players: {} };
 
         for (let id in match.players) {
+            const p = match.players[id];
+            const pos = getTrackPoint(p.trackT);
+
             state.players[id] = {
-                ...getTrackPoint(match.players[id].trackPos),
-                size: PLAYER_SIZE
+                x: pos.x,
+                y: pos.y,
+                size: PLAYER_SIZE,
+                color: p.color
             };
         }
 

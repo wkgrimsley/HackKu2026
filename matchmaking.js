@@ -1,10 +1,9 @@
 const { createMatch } = require("./gameManager");
 
 let matchmakingQueue = [];
-let matches = new Map();
 
 /* =========================
-   HANDLE CONNECTION
+   CONNECTION HANDLER
 ========================= */
 
 function handleConnection(ws) {
@@ -18,67 +17,40 @@ function handleConnection(ws) {
             matchmakingQueue.push(ws);
             tryMatchmake();
         }
-
-        if (data.type === "input") {
-            const match = matches.get(ws.roomId);
-            if (!match) return;
-
-            const player = match.players[ws.id];
-            if (!player) return;
-
-            player.input = data;
-        }
     });
 
     ws.on("close", () => {
         matchmakingQueue = matchmakingQueue.filter(p => p !== ws);
-
-        if (ws.roomId) {
-            const match = matches.get(ws.roomId);
-            if (match) {
-                delete match.players[ws.id];
-                match.sockets = match.sockets.filter(s => s !== ws);
-            }
-        }
     });
 }
 
 /* =========================
-   MATCHMAKING LOGIC
+   MATCHMAKING
 ========================= */
 
 function tryMatchmake() {
-    while (matchmakingQueue.length >= 2) {
-        const group = matchmakingQueue.splice(0, 2);
+    const PLAYERS_PER_MATCH = 2;
+
+    while (matchmakingQueue.length >= PLAYERS_PER_MATCH) {
+        const group = matchmakingQueue.splice(0, PLAYERS_PER_MATCH);
 
         const roomId = Math.random().toString(36).slice(2);
-        const match = createMatch();
 
-        group.forEach((ws, i) => {
-            const id = ws.id;
+        const match = createMatch(roomId);
 
-            match.players[id] = {
-                trackPos: i * 100,
-                input: { dx: 0 }
-            };
-
-            match.sockets.push(ws);
+        group.forEach((ws, index) => {
             ws.roomId = roomId;
+
+            match.addPlayer(ws, index === 0 ? "blue" : "red");
 
             ws.send(JSON.stringify({
                 type: "match_found",
                 roomId
             }));
         });
-
-        matches.set(roomId, match);
-
-        console.log("Match created:", roomId);
     }
 }
 
-/* expose matches ONLY if gameManager needs it */
 module.exports = {
-    handleConnection,
-    matches
+    handleConnection
 };
