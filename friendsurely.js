@@ -275,6 +275,7 @@ export default function Game() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [engineRef]);
 
+<<<<<<< HEAD
   return (
     <GameEngine
       ref={(ref) => setEngineRef(ref)}
@@ -283,3 +284,130 @@ export default function Game() {
     />
   );
 }
+=======
+/* =========================
+   SOCKET EVENTS (example)
+========================= */
+
+function onShoot(socket, data) {
+    const match = socket.match;
+    shootProjectile(match, socket, data);
+}
+
+/* =========================
+   COLLISION (PROJECTILE → PLAYER)
+========================= */
+
+Matter.Events.on(Matter.Engine.create().events?.collisionStart || {}, () => {
+    // (we attach properly inside loop below per engine)
+});
+
+/* Proper collision setup per match */
+function setupCollisions(match) {
+    Matter.Events.on(match.engine, "collisionStart", (event) => {
+        for (const pair of event.pairs) {
+            const a = pair.bodyA;
+            const b = pair.bodyB;
+
+            const aProj = a.label === "projectile";
+            const bProj = b.label === "projectile";
+
+            if (!aProj && !bProj) continue;
+
+            const projectile = aProj ? a : b;
+            const id = projectile.plugin?.id;
+
+            if (id === undefined) continue;
+
+            if (match.projectiles.has(id)) {
+                Matter.World.remove(match.engine.world, projectile);
+                match.projectiles.delete(id);
+            }
+        }
+    });
+}
+
+/* =========================
+   MAIN GAME LOOP
+========================= */
+
+setInterval(() => {
+
+    matches.forEach((match) => {
+
+        Matter.Engine.update(match.engine, 1000 / 30);
+
+        /* =========================
+           MOVE PLAYERS (UNCHANGED)
+        ========================= */
+
+        for (let id in match.players) {
+            const p = match.players[id];
+
+            if (!p.input) p.input = { dx: 0 };
+
+            if (p.input.dx > 0) p.trackPos += SPEED;
+            if (p.input.dx < 0) p.trackPos -= SPEED;
+        }
+
+
+        /* =========================
+           PLAYER STATE
+        ========================= */
+
+        const statePlayers = {};
+
+        for (let id in match.players) {
+            statePlayers[id] = {
+                ...getTrackPoint(match.players[id].trackPos),
+                size: PLAYER_SIZE
+            };
+        }
+
+        /* =========================
+           PROJECTILE ARRAY (IMPORTANT PART)
+        ========================= */
+
+        const projectileArray = [];
+
+        for (const [id, body] of match.projectiles) {
+            projectileArray.push({
+                id,
+                x: body.position.x,
+                y: body.position.y
+            });
+        }
+
+        /* =========================
+           SEND TO CLIENT
+        ========================= */
+
+        const state = {
+            players: statePlayers,
+            projectiles: projectileArray
+        };
+
+        const msg = JSON.stringify(state);
+
+        match.sockets.forEach(ws => {
+            if (ws.readyState === 1) {
+                ws.send(msg);
+            }
+        });
+
+    });
+
+}, 1000 / 30);
+
+/* =========================
+   EXPORTS
+========================= */
+
+module.exports = {
+    createMatch,
+    matches,
+    shootProjectile,
+    onShoot,
+    setupCollisions
+};
+>>>>>>> 78cc8392adbc4df08d6c0b0229260f36ac5a493e
