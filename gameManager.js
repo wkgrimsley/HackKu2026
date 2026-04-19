@@ -108,37 +108,46 @@ function destroyProjectile(match, body) {
     Matter.World.remove(match.engine.world, body);
 }
 
-function shootProjectile(match, x, y, dx, dy, owner) {
-    const id = match.projectileId++;
+/* =========================
+   BURST SHOOTING (NEW)
+========================= */
 
-    const body = Matter.Bodies.circle(x, y, 5, {
-        label: "projectile",
-        friction: 0,
-        frictionAir: 0,
-        restitution: 1
-    });
+function shootBurst(match, x, y, dx, dy, owner) {
+    const spread = 0.15;
+    const base = getNormalized(x, y, dx, dy);
 
-    const v = getNormalized(x, y, dx, dy);
+    for (let i = -1; i <= 1; i++) {
+        const angle = Math.atan2(base.y, base.x) + i * spread;
 
-    Matter.Body.setVelocity(body, {
-        x: v.x * BULLET_SPEED,
-        y: v.y * BULLET_SPEED
-    });
+        const vx = Math.cos(angle) * BULLET_SPEED;
+        const vy = Math.sin(angle) * BULLET_SPEED;
 
-    Matter.Body.setPosition(body, {
-        x: x + v.x * 40,
-        y: y + v.y * 40
-    });
+        const id = match.projectileId++;
 
-    body.plugin = {
-        id,
-        owner,
-        bounces: 0,
-        createdAt: Date.now()
-    };
+        const body = Matter.Bodies.circle(x, y, 5, {
+            label: "projectile",
+            friction: 0,
+            frictionAir: 0,
+            restitution: 1
+        });
 
-    match.projectiles.set(id, body);
-    Matter.World.add(match.engine.world, body);
+        Matter.Body.setVelocity(body, { x: vx, y: vy });
+
+        Matter.Body.setPosition(body, {
+            x: x + Math.cos(angle) * 40,
+            y: y + Math.sin(angle) * 40
+        });
+
+        body.plugin = {
+            id,
+            owner,
+            bounces: 0,
+            createdAt: Date.now()
+        };
+
+        match.projectiles.set(id, body);
+        Matter.World.add(match.engine.world, body);
+    }
 }
 
 /* =========================
@@ -155,36 +164,32 @@ function handleCollision(match, a, b) {
 
     if (other.label === "wall") {
         projectile.plugin.bounces++;
-
         other.plugin.flash = Date.now();
         spawnSparks(match, projectile.position.x, projectile.position.y);
 
-        if (projectile.plugin.bounces >= 7) {
+        if (projectile.plugin.bounces >= 5) {
             destroyProjectile(match, projectile);
         }
-
         return;
     }
 
     if (other.label === "player") {
-    const ownerId = projectile.plugin.owner;
+        for (let id in match.players) {
+            const p = match.players[id];
 
-    for (let id in match.players) {
-        const p = match.players[id];
+            if (p.body === other) {
+                p.health -= 1;
 
-        if (p.body === other) {
-            p.health -= 1;
+                destroyProjectile(match, projectile);
 
-            destroyProjectile(match, projectile);
-
-            if (p.health <= 0) {
-                Matter.World.remove(match.engine.world, p.body);
-                delete match.players[id];
+                if (p.health <= 0) {
+                    Matter.World.remove(match.engine.world, p.body);
+                    delete match.players[id];
+                }
+                break;
             }
-            break;
         }
     }
-}
 }
 
 /* =========================
@@ -232,8 +237,9 @@ function createMatch() {
                 trackPos: startT,
                 input: { dx: 0, mouse: {} },
                 color,
-                health: 25,              // ✅ NEW
-                body
+                health: 25,
+                body,
+                lastShot: 0   // ✅ cooldown tracker
             };
 
             Matter.World.add(engine.world, body);
@@ -272,7 +278,6 @@ setInterval(() => {
 
         Matter.Engine.update(match.engine, 1000 / 30);
 
-        // update sparks
         match.sparks.forEach(s => {
             s.x += s.vx;
             s.y += s.vy;
@@ -294,8 +299,14 @@ setInterval(() => {
 
             const m = p.input.mouse;
 
+            // ✅ BURST + COOLDOWN LOGIC
             if (m?.isDown) {
-                shootProjectile(match, pos.x, pos.y, m.x, m.y, id);
+                const now = Date.now();
+
+                if (now - p.lastShot >= 1000) {
+                    p.lastShot = now;
+                    shootBurst(match, pos.x, pos.y, m.x, m.y, id);
+                }
             }
         }
 
@@ -313,7 +324,7 @@ setInterval(() => {
                 y: p.body.position.y,
                 size: PLAYER_SIZE,
                 color: p.color,
-                health: p.health   // ✅ ADD THIS
+                health: p.health
             };
         }
 
