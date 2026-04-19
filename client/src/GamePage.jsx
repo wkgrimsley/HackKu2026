@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { socket } from "./socket";
 
 function GamePage() {
     const { name } = useParams();
 
+    const navigate = useNavigate();
     const canvasRef = useRef(null);
     const stateRef = useRef({ players: {}, projectiles: [], walls: [], sparks: [], track: null });
 
@@ -36,8 +37,24 @@ function GamePage() {
 
         socket.onmessage = (event) => {
             try {
-                stateRef.current = JSON.parse(event.data);
-            } catch {}
+                const data = JSON.parse(event.data);
+
+                stateRef.current = data;
+
+                if (data.type === "match_end") {
+                    const myId = socket.id; // or however you track player id
+
+                    const result =
+                        data.winner === null ? null :
+                        data.winner === myId ? "win" : "lose";
+
+                    navigate("/", {
+                        state: { result }
+                    });
+                }
+            } catch (err) {
+                console.error("Socket parse error:", err);
+            }
         };
 
         return () => {

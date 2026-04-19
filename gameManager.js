@@ -371,6 +371,7 @@ setInterval(() => {
 
         // ❄️ FREEZE MATCH END
         if (!match.running) {
+            
             const state = {
                 type: "match_end",
                 winner: match.winner,
