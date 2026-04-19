@@ -275,7 +275,6 @@ export default function Game() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [engineRef]);
 
-<<<<<<< HEAD
   return (
     <GameEngine
       ref={(ref) => setEngineRef(ref)}
@@ -284,7 +283,6 @@ export default function Game() {
     />
   );
 }
-=======
 /* =========================
    SOCKET EVENTS (example)
 ========================= */
@@ -410,4 +408,3 @@ module.exports = {
     onShoot,
     setupCollisions
 };
->>>>>>> 78cc8392adbc4df08d6c0b0229260f36ac5a493e
