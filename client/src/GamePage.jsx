@@ -6,13 +6,7 @@ function GamePage() {
     const { name } = useParams();
 
     const canvasRef = useRef(null);
-
-    const stateRef = useRef({
-        players: {},
-        projectiles: [],
-        walls: [],
-        sparks: []
-    });
+    const stateRef = useRef({ players: {}, projectiles: [], walls: [], sparks: [], track: null });
 
     const keysRef = useRef({});
     const mouseRef = useRef({ x: 0, y: 0, isDown: false });
@@ -80,13 +74,18 @@ function GamePage() {
         window.addEventListener("keydown", down);
         window.addEventListener("keyup", up);
         window.addEventListener("mousemove", mouseMove);
-        window.addEventListener("mousedown", () => (mouseRef.current.isDown = true));
-        window.addEventListener("mouseup", () => (mouseRef.current.isDown = false));
+        const mouseDown = () => (mouseRef.current.isDown = true);
+        const mouseUp = () => (mouseRef.current.isDown = false);
+
+        window.addEventListener("mousedown", mouseDown);
+        window.addEventListener("mouseup", mouseUp);
 
         return () => {
             window.removeEventListener("keydown", down);
             window.removeEventListener("keyup", up);
             window.removeEventListener("mousemove", mouseMove);
+            window.removeEventListener("mousedown", mouseDown);
+            window.removeEventListener("mouseup", mouseUp);
         };
     }, []);
 
@@ -245,12 +244,65 @@ function GamePage() {
                 ctx.shadowBlur = 0;
             }
 
-            /* TRACK */
-            ctx.strokeStyle = "cyan";
-            ctx.shadowColor = "cyan";
-            ctx.shadowBlur = 12;
-            ctx.strokeRect(TRACK.x, TRACK.y, TRACK.size, TRACK.size);
-            ctx.shadowBlur = 0;
+            // - TRACKS -
+            const track = stateRef.current.track;
+
+            if (track) {
+                ctx.strokeStyle = "cyan";
+                ctx.shadowColor = "cyan";
+                ctx.shadowBlur = 10;
+                ctx.lineWidth = 3;
+
+                switch (track.name) {
+                    case "square":
+                        ctx.strokeRect(track.x, track.y, track.size, track.size);
+                        break;
+
+                    case "square-cut":
+                        drawSquareCut(ctx, track);
+                        break;
+
+                    default:
+                        console.warn("Unknown track type:", track.name);
+                }
+
+                ctx.shadowBlur = 0;
+            }
+
+            function drawSquareCut(ctx, { x, y, size: s }) {
+                const cut = s * 0.2;
+
+                ctx.beginPath();
+
+                // Start top-left cut point
+                ctx.moveTo(x + cut, y);
+
+                // Top edge
+                ctx.lineTo(x + s - cut, y);
+
+                // Top-right diagonal
+                ctx.lineTo(x + s, y + cut);
+
+                // Right edge
+                ctx.lineTo(x + s, y + s - cut);
+
+                // Bottom-right diagonal
+                ctx.lineTo(x + s - cut, y + s);
+
+                // Bottom edge
+                ctx.lineTo(x + cut, y + s);
+
+                // Bottom-left diagonal
+                ctx.lineTo(x, y + s - cut);
+
+                // Left edge
+                ctx.lineTo(x, y + cut);
+
+                // Top-left diagonal (close)
+                ctx.closePath();
+
+                ctx.stroke();
+            }
 
             /* PLAYERS */
             for (let id in players) {
