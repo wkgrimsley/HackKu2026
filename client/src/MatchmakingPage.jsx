@@ -64,7 +64,7 @@ const MatchmakingPage = () => {
     }
 
     if (!name.trim()) {
-      setStatus("Enter a valid pilot name");
+      setStatus("Enter a valid player name");
       return;
     }
 
@@ -92,7 +92,7 @@ const MatchmakingPage = () => {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="ENTER PILOT NAME"
+          placeholder="ENTER PLAYER NAME"
           style={styles.input}
           maxLength={16}
         />

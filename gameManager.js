@@ -172,32 +172,37 @@ function handleCollision(match, a, b) {
     }
 
     if (other.label === "player") {
-        for (let id in match.players) {
-            const p = match.players[id];
 
-            if (p.body === other) {
-                p.health -= 1;
+    for (let id in match.players) {
+        const p = match.players[id];
 
-                destroyProjectile(match, projectile);
+        if (p.body === other) {
 
-                if (p.health <= 0) {
-                    Matter.World.remove(match.engine.world, p.body);
-                    delete match.players[id];
+            p.lastHit = Date.now();
 
-                    const remaining = Object.keys(match.players);
+            p.health -= 1;
 
-                    if (remaining.length === 1) {
-                        match.running = false;
-                        match.winner = remaining[0];
-                    } else if (remaining.length === 0) {
-                        match.running = false;
-                        match.winner = null;
-                    }
+            destroyProjectile(match, projectile);
+
+            if (p.health <= 0) {
+                Matter.World.remove(match.engine.world, p.body);
+                delete match.players[id];
+
+                const remaining = Object.keys(match.players);
+
+                if (remaining.length === 1) {
+                    match.running = false;
+                    match.winner = remaining[0];
+                } else if (remaining.length === 0) {
+                    match.running = false;
+                    match.winner = null;
                 }
-                break;
             }
+
+            break;
         }
     }
+}
 }
 
 /* =========================
@@ -352,7 +357,9 @@ setInterval(() => {
                 y: p.body.position.y,
                 size: PLAYER_SIZE,
                 color: p.color,
-                health: p.health
+                health: p.health ?? 25,
+
+                hitFlash: p.lastHit || 0  
             };
         }
 

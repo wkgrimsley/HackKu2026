@@ -6,7 +6,13 @@ function GamePage() {
     const { name } = useParams();
 
     const canvasRef = useRef(null);
-    const stateRef = useRef({ players: {}, projectiles: [], walls: [], sparks: [] });
+
+    const stateRef = useRef({
+        players: {},
+        projectiles: [],
+        walls: [],
+        sparks: []
+    });
 
     const keysRef = useRef({});
     const mouseRef = useRef({ x: 0, y: 0, isDown: false });
@@ -35,7 +41,9 @@ function GamePage() {
         };
 
         socket.onmessage = (event) => {
-            stateRef.current = JSON.parse(event.data);
+            try {
+                stateRef.current = JSON.parse(event.data);
+            } catch {}
         };
 
         return () => {
@@ -44,7 +52,7 @@ function GamePage() {
     }, [name]);
 
     /* =========================
-       INPUT (FIXED WORLD COORDS)
+       INPUT
     ========================= */
 
     useEffect(() => {
@@ -65,12 +73,8 @@ function GamePage() {
             const offsetX = (canvas.width - WORLD_WIDTH * scale) / 2;
             const offsetY = (canvas.height - WORLD_HEIGHT * scale) / 2;
 
-            // convert screen → world
-            const x = (e.clientX - rect.left - offsetX) / scale;
-            const y = (e.clientY - rect.top - offsetY) / scale;
-
-            mouseRef.current.x = x;
-            mouseRef.current.y = y;
+            mouseRef.current.x = (e.clientX - rect.left - offsetX) / scale;
+            mouseRef.current.y = (e.clientY - rect.top - offsetY) / scale;
         };
 
         window.addEventListener("keydown", down);
@@ -134,12 +138,11 @@ function GamePage() {
         const render = () => {
             const { players, projectiles, walls, sparks } = stateRef.current;
 
-            /* TRAIL FADE */
+            /* TRON FADE */
             ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.fillStyle = "rgba(5,5,16,0.2)";
+            ctx.fillStyle = "rgba(5,5,16,0.18)";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            /* WORLD TRANSFORM */
             const scale = Math.min(
                 canvas.width / WORLD_WIDTH,
                 canvas.height / WORLD_HEIGHT
@@ -150,39 +153,93 @@ function GamePage() {
 
             ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
 
-            /* GRID */
-            ctx.strokeStyle = "rgba(0,255,255,0.05)";
-            for (let i = 0; i < WORLD_WIDTH; i += 40) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0);
-                ctx.lineTo(i, WORLD_HEIGHT);
-                ctx.stroke();
-            }
-            for (let i = 0; i < WORLD_HEIGHT; i += 40) {
-                ctx.beginPath();
-                ctx.moveTo(0, i);
-                ctx.lineTo(WORLD_WIDTH, i);
-                ctx.stroke();
+            /* GRID (TRON LIVING GRID) */
+            const time = Date.now();
+
+            /* fade layer (keeps trails + motion blur feel) */
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = "rgba(5,5,16,0.12)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            /* world transform */
+            ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+
+            /* === NOVA BURSTS === */
+            if (!window.__nova) window.__nova = [];
+
+            const novaList = window.__nova;
+
+            /* spawn new nova occasionally */
+            if (Math.random() < 0.08) {
+                novaList.push({
+                    x: Math.random() * WORLD_WIDTH,
+                    y: Math.random() * WORLD_HEIGHT,
+                    r: 0,
+                    life: 1,
+                    hue: 180 + Math.random() * 40
+                });
             }
 
-            /* WALLS (FADE FLASH) */
+            /* update + draw nova bursts */
+            for (let i = novaList.length - 1; i >= 0; i--) {
+                const n = novaList[i];
+
+                n.r += 1.2;
+                n.life -= 0.015;
+
+                if (n.life <= 0) {
+                    novaList.splice(i, 1);
+                    continue;
+                }
+
+                const glow = n.life;
+
+                const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+
+                grad.addColorStop(0, `hsla(${n.hue},100%,70%,${0.25 * glow})`);
+                grad.addColorStop(0.4, `hsla(${n.hue},100%,60%,${0.12 * glow})`);
+                grad.addColorStop(1, "rgba(0,0,0,0)");
+
+                ctx.fillStyle = grad;
+
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            /* === SUBTLE FLOATING PARTICLES === */
+            for (let i = 0; i < 18; i++) {
+                const px = (i * 173.3 + time * 0.02) % WORLD_WIDTH;
+                const py = (i * 97.7 + time * 0.015) % WORLD_HEIGHT;
+
+                ctx.beginPath();
+                ctx.fillStyle = "rgba(0,255,255,0.06)";
+                ctx.shadowColor = "#00f0ff";
+                ctx.shadowBlur = 10;
+
+                ctx.arc(px, py, 1.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.shadowBlur = 0;
+
+            /* WALLS */
             const now = Date.now();
 
-            for (const wall of walls || []) {
-                const dt = now - wall.flash;
+            for (const w of walls || []) {
+                const dt = now - w.flash;
                 const intensity = Math.max(0, 1 - dt / 200);
 
                 ctx.strokeStyle = `rgba(255,255,255,${0.3 + intensity})`;
-                ctx.lineWidth = 2 + intensity * 4;
-
+                ctx.lineWidth = 2 + intensity * 3;
                 ctx.shadowColor = "#fff";
-                ctx.shadowBlur = 10 * intensity;
+                ctx.shadowBlur = 12 * intensity;
 
                 ctx.strokeRect(
-                    wall.x - wall.width / 2,
-                    wall.y - wall.height / 2,
-                    wall.width,
-                    wall.height
+                    w.x - w.width / 2,
+                    w.y - w.height / 2,
+                    w.width,
+                    w.height
                 );
 
                 ctx.shadowBlur = 0;
@@ -191,12 +248,11 @@ function GamePage() {
             /* TRACK */
             ctx.strokeStyle = "cyan";
             ctx.shadowColor = "cyan";
-            ctx.shadowBlur = 10;
-            ctx.lineWidth = 3;
+            ctx.shadowBlur = 12;
             ctx.strokeRect(TRACK.x, TRACK.y, TRACK.size, TRACK.size);
             ctx.shadowBlur = 0;
 
-            /* PLAYERS + TRAILS */
+            /* PLAYERS */
             for (let id in players) {
                 const p = players[id];
 
@@ -204,15 +260,16 @@ function GamePage() {
 
                 trailRef.current[id].push({ x: p.x, y: p.y });
 
-                if (trailRef.current[id].length > 12) {
+                if (trailRef.current[id].length > 18) {
                     trailRef.current[id].shift();
                 }
 
                 const trail = trailRef.current[id];
 
+                /* TRAIL */
                 ctx.strokeStyle = p.color;
                 ctx.shadowColor = p.color;
-                ctx.shadowBlur = 15;
+                ctx.shadowBlur = 14;
 
                 ctx.beginPath();
                 for (let i = 0; i < trail.length; i++) {
@@ -222,26 +279,39 @@ function GamePage() {
                 }
                 ctx.stroke();
 
-                ctx.beginPath();
+                /* HIT FLASH */
+                const flash = p.hitFlash || 0;
+                const flashIntensity = Math.max(0, 1 - (now - flash) / 150);
+
+                ctx.shadowColor = flashIntensity > 0 ? "#fff" : p.color;
+                ctx.shadowBlur = flashIntensity > 0 ? 30 : 15;
+
                 ctx.fillStyle = p.color;
+                ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
                 ctx.fill();
 
+                if (flashIntensity > 0) {
+                    ctx.fillStyle = `rgba(255,255,255,${flashIntensity})`;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size / 2 + 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
                 ctx.shadowBlur = 0;
 
+                /* HEALTH BAR */
                 const hp = p.health ?? 25;
-                const maxHp = 25;
-
-                const barWidth = 40;
-                const barHeight = 5;
-
-                const percent = hp / maxHp;
+                const percent = hp / 25;
 
                 ctx.fillStyle = "rgba(0,0,0,0.6)";
-                ctx.fillRect(p.x - barWidth / 2, p.y + p.size + 6, barWidth, barHeight);
+                ctx.fillRect(p.x - 20, p.y + 25, 40, 5);
 
-                ctx.fillStyle = percent > 0.5 ? "#00ffcc" : percent > 0.25 ? "#ffcc00" : "#ff0033";
-                ctx.fillRect(p.x - barWidth / 2, p.y + p.size + 6, barWidth * percent, barHeight);
+                ctx.fillStyle =
+                    percent > 0.5 ? "#00ffcc" :
+                    percent > 0.25 ? "#ffcc00" : "#ff0033";
+
+                ctx.fillRect(p.x - 20, p.y + 25, 40 * percent, 5);
             }
 
             /* PROJECTILES */
@@ -257,15 +327,12 @@ function GamePage() {
 
             /* SPARKS */
             for (const s of sparks || []) {
+                ctx.beginPath();
                 ctx.fillStyle = `rgba(0,255,255,${s.life})`;
-
                 ctx.shadowColor = "#0ff";
                 ctx.shadowBlur = 10;
-
-                ctx.beginPath();
                 ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
                 ctx.fill();
-
                 ctx.shadowBlur = 0;
             }
 
