@@ -142,7 +142,7 @@ function GamePage() {
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = "rgba(10,10,20,0.25)";
+            ctx.fillStyle = "rgba(10,10,20,0.05)";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             const scale = Math.min(

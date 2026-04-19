@@ -5,8 +5,9 @@ import { socket } from "./socket";
 const MatchmakingPage = () => {
   const [status, setStatus] = useState("Initializing...");
   const [dots, setDots] = useState("");
-  const navigate = useNavigate();
+  const [name, setName] = useState("");
 
+  const navigate = useNavigate();
   const connectedRef = useRef(false);
 
   /* =========================
@@ -62,7 +63,18 @@ const MatchmakingPage = () => {
       return;
     }
 
-    socket.send(JSON.stringify({ type: "join_match" }));
+    if (!name.trim()) {
+      setStatus("Enter a valid pilot name");
+      return;
+    }
+
+    socket.send(
+      JSON.stringify({
+        type: "join_match",
+        name: name.trim()
+      })
+    );
+
     setStatus("Scanning grid" + dots);
   };
 
@@ -74,7 +86,16 @@ const MatchmakingPage = () => {
       <div style={styles.gridOverlay}></div>
 
       <div style={styles.card}>
-        <h1 style={styles.title}>TRON ARENA</h1>
+        <h1 style={styles.title}>THE PHANTOM BULLET</h1>
+
+        {/* NAME INPUT */}
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="ENTER PILOT NAME"
+          style={styles.input}
+          maxLength={16}
+        />
 
         <div style={styles.status}>
           {status}{status.includes("Scanning") ? dots : ""}
@@ -110,7 +131,6 @@ const styles = {
     overflow: "hidden"
   },
 
-  /* animated grid background */
   gridOverlay: {
     position: "absolute",
     width: "200%",
@@ -142,6 +162,21 @@ const styles = {
     letterSpacing: 4
   },
 
+  /* NEW INPUT STYLE */
+  input: {
+    width: "100%",
+    padding: "10px",
+    marginBottom: 15,
+    background: "transparent",
+    border: "1px solid #00f0ff",
+    color: "#00f0ff",
+    outline: "none",
+    textAlign: "center",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    boxShadow: "0 0 10px rgba(0,255,255,0.2)"
+  },
+
   status: {
     marginBottom: 20,
     color: "#7df9ff",
@@ -170,7 +205,7 @@ const styles = {
   }
 };
 
-/* inject animation keyframes */
+/* animation */
 const styleSheet = document.styleSheets[0];
 styleSheet.insertRule(`
 @keyframes moveGrid {
