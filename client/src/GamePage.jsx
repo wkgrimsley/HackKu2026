@@ -228,6 +228,20 @@ function GamePage() {
                 ctx.fill();
 
                 ctx.shadowBlur = 0;
+
+                const hp = p.health ?? 25;
+                const maxHp = 25;
+
+                const barWidth = 40;
+                const barHeight = 5;
+
+                const percent = hp / maxHp;
+
+                ctx.fillStyle = "rgba(0,0,0,0.6)";
+                ctx.fillRect(p.x - barWidth / 2, p.y + p.size + 6, barWidth, barHeight);
+
+                ctx.fillStyle = percent > 0.5 ? "#00ffcc" : percent > 0.25 ? "#ffcc00" : "#ff0033";
+                ctx.fillRect(p.x - barWidth / 2, p.y + p.size + 6, barWidth * percent, barHeight);
             }
 
             /* PROJECTILES */

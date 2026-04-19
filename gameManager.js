@@ -167,8 +167,24 @@ function handleCollision(match, a, b) {
     }
 
     if (other.label === "player") {
-        destroyProjectile(match, projectile);
+    const ownerId = projectile.plugin.owner;
+
+    for (let id in match.players) {
+        const p = match.players[id];
+
+        if (p.body === other) {
+            p.health -= 1;
+
+            destroyProjectile(match, projectile);
+
+            if (p.health <= 0) {
+                Matter.World.remove(match.engine.world, p.body);
+                delete match.players[id];
+            }
+            break;
+        }
     }
+}
 }
 
 /* =========================
@@ -216,6 +232,7 @@ function createMatch() {
                 trackPos: startT,
                 input: { dx: 0, mouse: {} },
                 color,
+                health: 25,              // ✅ NEW
                 body
             };
 
@@ -295,7 +312,8 @@ setInterval(() => {
                 x: p.body.position.x,
                 y: p.body.position.y,
                 size: PLAYER_SIZE,
-                color: p.color
+                color: p.color,
+                health: p.health   // ✅ ADD THIS
             };
         }
 
