@@ -22,7 +22,7 @@ const SPAWN_INVULNERABILITY_MS = 300;
 const matches = new Map();
 
 /* =========================
-   TRACK FUNCTION (PLAYER MOVEMENT ONLY)
+   TRACK FUNCTION
 ========================= */
 
 function getTrackPoint(t) {
@@ -44,7 +44,7 @@ function getTrackPoint(t) {
 }
 
 /* =========================
-   VECTOR HELPERS
+   VECTOR
 ========================= */
 
 function getNormalized(x, y, dx, dy) {
@@ -58,90 +58,55 @@ function getNormalized(x, y, dx, dy) {
 }
 
 /* =========================
-   PROJECTILE CLEANUP
+   SPARKS
 ========================= */
 
-function destroyProjectile(match, body) {
-    const id = body.plugin?.id;
+function spawnSparks(match, x, y) {
+    for (let i = 0; i < 6; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 4 + 2;
 
-    if (id !== undefined && match.projectiles.has(id)) {
-        match.projectiles.delete(id);
-    }
-
-    Matter.World.remove(match.engine.world, body);
-}
-
-/* =========================
-   COLLISION HANDLER
-========================= */
-
-function handleCollision(match, a, b) {
-    if (!a.plugin || !match.projectiles.has(a.plugin.id)) return;
-
-    const projectile = a;
-    const other = b;
-
-    // ignore spawn grace period
-    if (Date.now() - projectile.plugin.createdAt < SPAWN_INVULNERABILITY_MS) {
-        return;
-    }
-
-    // bounce on outer walls ONLY
-    if (other.label === "wall") {
-        projectile.plugin.bounces += 1;
-
-        if (projectile.plugin.bounces >= 7) {
-            destroyProjectile(match, projectile);
-        }
-
-        return;
-    }
-
-    // hit player → destroy
-    if (other.label === "player") {
-        destroyProjectile(match, projectile);
+        match.sparks.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1
+        });
     }
 }
 
 /* =========================
-   OUTER WALL ONLY (NO INNER WALLS)
+   WALLS
 ========================= */
 
 function createOuterWalls(engine) {
     const t = 50;
 
     const walls = [
-        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, -t / 2, CANVAS_WIDTH, t, {
-            isStatic: true,
-            restitution: 1,
-            label: "wall"
-        }),
-
-        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, CANVAS_HEIGHT + t / 2, CANVAS_WIDTH, t, {
-            isStatic: true,
-            restitution: 1,
-            label: "wall"
-        }),
-
-        Matter.Bodies.rectangle(-t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, {
-            isStatic: true,
-            restitution: 1,
-            label: "wall"
-        }),
-
-        Matter.Bodies.rectangle(CANVAS_WIDTH + t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, {
-            isStatic: true,
-            restitution: 1,
-            label: "wall"
-        })
+        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, -t / 2, CANVAS_WIDTH, t, { isStatic: true, restitution: 1, label: "wall" }),
+        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, CANVAS_HEIGHT + t / 2, CANVAS_WIDTH, t, { isStatic: true, restitution: 1, label: "wall" }),
+        Matter.Bodies.rectangle(-t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, { isStatic: true, restitution: 1, label: "wall" }),
+        Matter.Bodies.rectangle(CANVAS_WIDTH + t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, { isStatic: true, restitution: 1, label: "wall" })
     ];
 
+    walls.forEach(w => {
+        w.plugin = { flash: 0 };
+    });
+
     Matter.World.add(engine.world, walls);
+    return walls;
 }
 
 /* =========================
    PROJECTILES
 ========================= */
+
+function destroyProjectile(match, body) {
+    const id = body.plugin?.id;
+    if (id !== undefined) match.projectiles.delete(id);
+    Matter.World.remove(match.engine.world, body);
+}
 
 function shootProjectile(match, x, y, dx, dy, owner) {
     const id = match.projectileId++;
@@ -150,11 +115,7 @@ function shootProjectile(match, x, y, dx, dy, owner) {
         label: "projectile",
         friction: 0,
         frictionAir: 0,
-        restitution: 1,
-        collisionFilter: {
-            // IMPORTANT: bullets ignore "track concept" entirely
-            group: 0
-        }
+        restitution: 1
     });
 
     const v = getNormalized(x, y, dx, dy);
@@ -164,12 +125,9 @@ function shootProjectile(match, x, y, dx, dy, owner) {
         y: v.y * BULLET_SPEED
     });
 
-    // spawn forward so it doesn’t instantly collide
-    const spawnOffset = 40;
-
     Matter.Body.setPosition(body, {
-        x: x + v.x * spawnOffset,
-        y: y + v.y * spawnOffset
+        x: x + v.x * 40,
+        y: y + v.y * 40
     });
 
     body.plugin = {
@@ -184,25 +142,56 @@ function shootProjectile(match, x, y, dx, dy, owner) {
 }
 
 /* =========================
+   COLLISION
+========================= */
+
+function handleCollision(match, a, b) {
+    if (!a.plugin || !match.projectiles.has(a.plugin.id)) return;
+
+    const projectile = a;
+    const other = b;
+
+    if (Date.now() - projectile.plugin.createdAt < SPAWN_INVULNERABILITY_MS) return;
+
+    if (other.label === "wall") {
+        projectile.plugin.bounces++;
+
+        other.plugin.flash = Date.now();
+        spawnSparks(match, projectile.position.x, projectile.position.y);
+
+        if (projectile.plugin.bounces >= 7) {
+            destroyProjectile(match, projectile);
+        }
+
+        return;
+    }
+
+    if (other.label === "player") {
+        destroyProjectile(match, projectile);
+    }
+}
+
+/* =========================
    CREATE MATCH
 ========================= */
 
 function createMatch() {
-    const roomId = Math.random().toString(36).slice(2);
+    const id = Math.random().toString(36).slice(2);
 
     const engine = Matter.Engine.create();
     engine.world.gravity.y = 0;
 
-    // ONLY outer walls
-    createOuterWalls(engine);
+    const walls = createOuterWalls(engine);
 
     const match = {
-        id: roomId,
+        id,
         players: {},
         sockets: [],
         engine,
+        walls,
         projectiles: new Map(),
-        projectileId: 0
+        projectileId: 0,
+        sparks: []
     };
 
     Matter.Events.on(engine, "collisionStart", (event) => {
@@ -212,7 +201,7 @@ function createMatch() {
         }
     });
 
-    matches.set(roomId, match);
+    matches.set(id, match);
 
     return {
         addPlayer(ws, color) {
@@ -230,12 +219,11 @@ function createMatch() {
                 body
             };
 
-            Matter.World.add(match.engine.world, body);
+            Matter.World.add(engine.world, body);
             match.sockets.push(ws);
 
             ws.on("message", (msg) => {
                 const data = JSON.parse(msg);
-
                 if (data.type === "input") {
                     const p = match.players[ws.id];
                     if (!p) return;
@@ -249,10 +237,7 @@ function createMatch() {
 
             ws.on("close", () => {
                 const p = match.players[ws.id];
-
-                if (p?.body) {
-                    Matter.World.remove(match.engine.world, p.body);
-                }
+                if (p?.body) Matter.World.remove(engine.world, p.body);
 
                 delete match.players[ws.id];
                 match.sockets = match.sockets.filter(s => s !== ws);
@@ -267,42 +252,45 @@ function createMatch() {
 
 setInterval(() => {
     matches.forEach((match) => {
+
         Matter.Engine.update(match.engine, 1000 / 30);
+
+        // update sparks
+        match.sparks.forEach(s => {
+            s.x += s.vx;
+            s.y += s.vy;
+            s.vx *= 0.95;
+            s.vy *= 0.95;
+            s.life -= 0.05;
+        });
+
+        match.sparks = match.sparks.filter(s => s.life > 0);
 
         for (let id in match.players) {
             const p = match.players[id];
 
-            if (!p.input) p.input = { dx: 0, mouse: {} };
-            if (!p.input.mouse) p.input.mouse = { isDown: false };
-
-            // move along TRACK (NOT physics walls)
             if (p.input.dx > 0) p.trackPos += SPEED;
             if (p.input.dx < 0) p.trackPos -= SPEED;
 
             const pos = getTrackPoint(p.trackPos);
-
             Matter.Body.setPosition(p.body, pos);
 
-            const mouse = p.input.mouse;
+            const m = p.input.mouse;
 
-            if (mouse.isDown) {
-                shootProjectile(
-                    match,
-                    pos.x,
-                    pos.y,
-                    mouse.x || pos.x,
-                    mouse.y || pos.y,
-                    id
-                );
+            if (m?.isDown) {
+                shootProjectile(match, pos.x, pos.y, m.x, m.y, id);
             }
         }
 
-        /* build state */
-        const state = { players: {}, projectiles: [] };
+        const state = {
+            players: {},
+            projectiles: [],
+            walls: [],
+            sparks: match.sparks
+        };
 
         for (let id in match.players) {
             const p = match.players[id];
-
             state.players[id] = {
                 x: p.body.position.x,
                 y: p.body.position.y,
@@ -319,13 +307,22 @@ setInterval(() => {
             });
         }
 
+        for (const w of match.walls) {
+            state.walls.push({
+                x: w.position.x,
+                y: w.position.y,
+                width: w.bounds.max.x - w.bounds.min.x,
+                height: w.bounds.max.y - w.bounds.min.y,
+                flash: w.plugin.flash
+            });
+        }
+
         const msg = JSON.stringify(state);
 
         match.sockets.forEach(ws => {
-            if (ws.readyState === 1) {
-                ws.send(msg);
-            }
+            if (ws.readyState === 1) ws.send(msg);
         });
+
     });
 }, 1000 / 30);
 
