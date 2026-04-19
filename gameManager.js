@@ -165,9 +165,7 @@ function createOuterWalls(engine) {
         Matter.Bodies.rectangle(CANVAS_WIDTH + t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, { isStatic: true, restitution: 1, label: "wall" })
     ];
 
-    walls.forEach(w => {
-        w.plugin = { flash: 0 };
-    });
+    walls.forEach(w => w.plugin = { flash: 0 });
 
     Matter.World.add(engine.world, walls);
     return walls;
@@ -184,7 +182,7 @@ function destroyProjectile(match, body) {
 }
 
 /* =========================
-   BURST SHOOTING (NEW)
+   BURST SHOOT
 ========================= */
 
 function shootBurst(match, x, y, dx, dy, owner) {
@@ -242,7 +240,7 @@ function handleCollision(match, a, b) {
         other.plugin.flash = Date.now();
         spawnSparks(match, projectile.position.x, projectile.position.y);
 
-        if (projectile.plugin.bounces >= 5) {
+        if (projectile.plugin.bounces >= 7) {
             destroyProjectile(match, projectile);
         }
         return;
@@ -260,6 +258,16 @@ function handleCollision(match, a, b) {
                 if (p.health <= 0) {
                     Matter.World.remove(match.engine.world, p.body);
                     delete match.players[id];
+
+                    const remaining = Object.keys(match.players);
+
+                    if (remaining.length === 1) {
+                        match.running = false;
+                        match.winner = remaining[0];
+                    } else if (remaining.length === 0) {
+                        match.running = false;
+                        match.winner = null;
+                    }
                 }
                 break;
             }
@@ -290,6 +298,8 @@ function createMatch() {
         projectiles: new Map(),
         projectileId: 0,
         sparks: [],
+        running: true,
+        winner: null,
         track
     };
 
@@ -317,7 +327,7 @@ function createMatch() {
                 color,
                 health: 25,
                 body,
-                lastShot: 0   // ✅ cooldown tracker
+                lastShot: 0
             };
 
             Matter.World.add(engine.world, body);
@@ -354,6 +364,23 @@ function createMatch() {
 setInterval(() => {
     matches.forEach((match) => {
 
+        // ❄️ FREEZE MATCH END
+        if (!match.running) {
+            const state = {
+                type: "match_end",
+                winner: match.winner,
+                sparks: match.sparks
+            };
+
+            const msg = JSON.stringify(state);
+
+            match.sockets.forEach(ws => {
+                if (ws.readyState === 1) ws.send(msg);
+            });
+
+            return;
+        }
+
         Matter.Engine.update(match.engine, 1000 / 30);
 
         match.sparks.forEach(s => {
@@ -377,7 +404,6 @@ setInterval(() => {
 
             const m = p.input.mouse;
 
-            // ✅ BURST + COOLDOWN LOGIC
             if (m?.isDown) {
                 const now = Date.now();
 
@@ -393,6 +419,8 @@ setInterval(() => {
             projectiles: [],
             walls: [],
             sparks: match.sparks,
+            running: match.running,
+            winner: match.winner,
             track: match.track
         };
 
