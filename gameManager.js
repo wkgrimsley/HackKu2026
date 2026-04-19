@@ -7,11 +7,20 @@ const Matter = require("matter-js");
 const CANVAS_WIDTH = 1000;
 const CANVAS_HEIGHT = 800;
 
-const TRACK = {
-    x: 200,
-    y: 100,
-    size: 600
-};
+const TRACKS = [
+    {
+        name: "square",
+        x: 200,
+        y: 100,
+        size: 600
+    },
+    {
+        name: "square-cut",
+        x: 200,
+        y: 100,
+        size: 600
+    }
+];
 
 const PLAYER_SIZE = 30;
 const SPEED = 12;
@@ -24,8 +33,19 @@ const matches = new Map();
 /* =========================
    TRACK FUNCTION
 ========================= */
+function getTrackPoint(t, track) {
+    switch (track.name) {
+        case "square":
+            return getSquarePoint(t, track);
 
-function getTrackPoint(t) {
+        case "square-cut":
+            return getSquareCutPoint(t, track);
+
+        default:
+            throw new Error("Unknown track type: " + track.name);
+    }
+}
+function getSquarePoint(t, TRACK) {
     const s = TRACK.size;
     const perimeter = s * 4;
 
@@ -41,6 +61,61 @@ function getTrackPoint(t) {
     t -= s;
 
     return { x: TRACK.x, y: TRACK.y + s - t };
+}
+function getSquareCutPoint(t, { x, y, size: s }) {
+    const cut = s * 0.2; // how much corner is cut (adjust this)
+
+    const straight = s - 2 * cut;
+    const diag = Math.sqrt(cut * cut * 2);
+
+    const lengths = [
+        straight, // top
+        diag,     // top-right
+        straight, // right
+        diag,     // bottom-right
+        straight, // bottom
+        diag,     // bottom-left
+        straight, // left
+        diag      // top-left
+    ];
+
+    const perimeter = lengths.reduce((a, b) => a + b, 0);
+
+    t = ((t % perimeter) + perimeter) % perimeter;
+
+    for (let i = 0; i < lengths.length; i++) {
+        if (t < lengths[i]) {
+            return getSquareCutSegment(i, t, { x, y, s, cut, straight, diag });
+        }
+        t -= lengths[i];
+    }
+}
+function getSquareCutSegment(i, t, { x, y, s, cut, straight }) {
+    switch (i) {
+        case 0: // top
+            return { x: x + cut + t, y: y };
+
+        case 1: // top-right diagonal
+            return { x: x + s - cut + t / Math.sqrt(2), y: y + t / Math.sqrt(2) };
+
+        case 2: // right
+            return { x: x + s, y: y + cut + t };
+
+        case 3: // bottom-right diagonal
+            return { x: x + s - t / Math.sqrt(2), y: y + s - cut + t / Math.sqrt(2) };
+
+        case 4: // bottom
+            return { x: x + s - cut - t, y: y + s };
+
+        case 5: // bottom-left diagonal
+            return { x: x + cut - t / Math.sqrt(2), y: y + s - t / Math.sqrt(2) };
+
+        case 6: // left
+            return { x: x, y: y + s - cut - t };
+
+        case 7: // top-left diagonal
+            return { x: x + t / Math.sqrt(2), y: y + cut - t / Math.sqrt(2) };
+    }
 }
 
 /* =========================
@@ -204,6 +279,8 @@ function createMatch() {
 
     const walls = createOuterWalls(engine);
 
+    const track = TRACKS[Math.floor(Math.random() * TRACKS.length)];
+
     const match = {
         id,
         players: {},
@@ -212,7 +289,8 @@ function createMatch() {
         walls,
         projectiles: new Map(),
         projectileId: 0,
-        sparks: []
+        sparks: [],
+        track
     };
 
     Matter.Events.on(engine, "collisionStart", (event) => {
@@ -226,7 +304,7 @@ function createMatch() {
 
     return {
         addPlayer(ws, color) {
-            const startT = Math.random() * TRACK.size * 4;
+            const startT = Math.random() * 500 * 4;
 
             const body = Matter.Bodies.circle(0, 0, PLAYER_SIZE, {
                 isStatic: true,
@@ -294,7 +372,7 @@ setInterval(() => {
             if (p.input.dx > 0) p.trackPos += SPEED;
             if (p.input.dx < 0) p.trackPos -= SPEED;
 
-            const pos = getTrackPoint(p.trackPos);
+            const pos = getTrackPoint(p.trackPos, match.track);
             Matter.Body.setPosition(p.body, pos);
 
             const m = p.input.mouse;
@@ -314,7 +392,8 @@ setInterval(() => {
             players: {},
             projectiles: [],
             walls: [],
-            sparks: match.sparks
+            sparks: match.sparks,
+            track: match.track
         };
 
         for (let id in match.players) {
