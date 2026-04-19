@@ -1,8 +1,11 @@
 const Matter = require("matter-js");
 
 /* =========================
-   TRACK SETTINGS
+   ARENA SETTINGS
 ========================= */
+
+const CANVAS_WIDTH = 1000;
+const CANVAS_HEIGHT = 800;
 
 const TRACK = {
     x: 200,
@@ -14,12 +17,12 @@ const PLAYER_SIZE = 30;
 const SPEED = 12;
 
 const BULLET_SPEED = 6;
-const SPAWN_INVULNERABILITY_MS = 300; // 🔥 0.3s grace period
+const SPAWN_INVULNERABILITY_MS = 300;
 
 const matches = new Map();
 
 /* =========================
-   TRACK FUNCTION
+   TRACK FUNCTION (PLAYER MOVEMENT ONLY)
 ========================= */
 
 function getTrackPoint(t) {
@@ -41,7 +44,7 @@ function getTrackPoint(t) {
 }
 
 /* =========================
-   NORMALIZE VECTOR
+   VECTOR HELPERS
 ========================= */
 
 function getNormalized(x, y, dx, dy) {
@@ -55,7 +58,7 @@ function getNormalized(x, y, dx, dy) {
 }
 
 /* =========================
-   DESTROY PROJECTILE
+   PROJECTILE CLEANUP
 ========================= */
 
 function destroyProjectile(match, body) {
@@ -78,12 +81,12 @@ function handleCollision(match, a, b) {
     const projectile = a;
     const other = b;
 
-    // 🔥 SPAWN PROTECTION (ignore collisions for first 0.3s)
+    // ignore spawn grace period
     if (Date.now() - projectile.plugin.createdAt < SPAWN_INVULNERABILITY_MS) {
         return;
     }
 
-    // WALL → bounce
+    // bounce on outer walls ONLY
     if (other.label === "wall") {
         projectile.plugin.bounces += 1;
 
@@ -94,42 +97,39 @@ function handleCollision(match, a, b) {
         return;
     }
 
-    // PLAYER → destroy
+    // hit player → destroy
     if (other.label === "player") {
         destroyProjectile(match, projectile);
     }
 }
 
 /* =========================
-   TRACK WALLS
+   OUTER WALL ONLY (NO INNER WALLS)
 ========================= */
 
-function createTrackWalls(engine) {
-    const s = TRACK.size;
-    const x = TRACK.x;
-    const y = TRACK.y;
-    const t = 20;
+function createOuterWalls(engine) {
+    const t = 50;
 
     const walls = [
-        Matter.Bodies.rectangle(x + s / 2, y - t / 2, s, t, {
+        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, -t / 2, CANVAS_WIDTH, t, {
             isStatic: true,
             restitution: 1,
             label: "wall"
         }),
 
-        Matter.Bodies.rectangle(x + s + t / 2, y + s / 2, t, s, {
+        Matter.Bodies.rectangle(CANVAS_WIDTH / 2, CANVAS_HEIGHT + t / 2, CANVAS_WIDTH, t, {
             isStatic: true,
             restitution: 1,
             label: "wall"
         }),
 
-        Matter.Bodies.rectangle(x + s / 2, y + s + t / 2, s, t, {
+        Matter.Bodies.rectangle(-t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, {
             isStatic: true,
             restitution: 1,
             label: "wall"
         }),
 
-        Matter.Bodies.rectangle(x - t / 2, y + s / 2, t, s, {
+        Matter.Bodies.rectangle(CANVAS_WIDTH + t / 2, CANVAS_HEIGHT / 2, t, CANVAS_HEIGHT, {
             isStatic: true,
             restitution: 1,
             label: "wall"
@@ -150,7 +150,11 @@ function shootProjectile(match, x, y, dx, dy, owner) {
         label: "projectile",
         friction: 0,
         frictionAir: 0,
-        restitution: 1
+        restitution: 1,
+        collisionFilter: {
+            // IMPORTANT: bullets ignore "track concept" entirely
+            group: 0
+        }
     });
 
     const v = getNormalized(x, y, dx, dy);
@@ -160,8 +164,9 @@ function shootProjectile(match, x, y, dx, dy, owner) {
         y: v.y * BULLET_SPEED
     });
 
-    // 🔥 spawn slightly forward so it leaves player cleanly
+    // spawn forward so it doesn’t instantly collide
     const spawnOffset = 40;
+
     Matter.Body.setPosition(body, {
         x: x + v.x * spawnOffset,
         y: y + v.y * spawnOffset
@@ -171,7 +176,7 @@ function shootProjectile(match, x, y, dx, dy, owner) {
         id,
         owner,
         bounces: 0,
-        createdAt: Date.now() // 🔥 NEW
+        createdAt: Date.now()
     };
 
     match.projectiles.set(id, body);
@@ -188,7 +193,8 @@ function createMatch() {
     const engine = Matter.Engine.create();
     engine.world.gravity.y = 0;
 
-    createTrackWalls(engine);
+    // ONLY outer walls
+    createOuterWalls(engine);
 
     const match = {
         id: roomId,
@@ -269,14 +275,14 @@ setInterval(() => {
             if (!p.input) p.input = { dx: 0, mouse: {} };
             if (!p.input.mouse) p.input.mouse = { isDown: false };
 
-            // movement
+            // move along TRACK (NOT physics walls)
             if (p.input.dx > 0) p.trackPos += SPEED;
             if (p.input.dx < 0) p.trackPos -= SPEED;
 
             const pos = getTrackPoint(p.trackPos);
+
             Matter.Body.setPosition(p.body, pos);
 
-            // shooting
             const mouse = p.input.mouse;
 
             if (mouse.isDown) {
