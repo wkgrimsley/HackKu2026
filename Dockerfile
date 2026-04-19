@@ -7,11 +7,11 @@ WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm install
 
-# Verify Node.js version
-RUN node --version
+# Copy client source files (excluding node_modules)
+COPY client/src ./src
+COPY client/index.html client/vite.config.js client/eslint.config.js ./
 
 # Build the React app
-COPY client/ ./
 RUN npm run build
 
 # Stage 2: Set up the production environment
@@ -27,6 +27,9 @@ RUN npm install
 COPY server.js ./
 COPY matchmaking.js ./
 COPY gameManager.js ./
+COPY friendsurely.js ./
+COPY friendsgame.js ./
+COPY circlephysics.js ./
 
 # Copy built React files to the public directory
 COPY --from=frontend-builder /app/client/dist ./public
